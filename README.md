@@ -24,16 +24,19 @@ Tsukuyo is a command-line tool designed to automate and streamline various opera
   - **Database Inventory**: Store database connection details
   - **Interactive Selection**: User-friendly prompts for selecting from available options
 
+- **Script Management**
+  - **Script Library**: Store, organize, and execute shell scripts
+  - **Environment Variable Support**: Run scripts with environment variables from files
+  - **Script Metadata**: Add descriptions and tags for organization
+  - **Editor Integration**: Edit scripts directly from the CLI
+  - **Search & Filter**: Find scripts by name, tag, or description
+
 - **Data Persistence**
-  - Local storage in `.data` directory
+  - Local storage in `~/.tsukuyo` directory
+  - Individual script files with metadata
   - JSON-based storage format
 
 ### Planned Features
-
-- **Script Inventory**: 
-  - Execute, view, and edit predefined scripts
-  - Support for bash, node/deno, and python scripts
-  - Editor integration for script management
 
 - **Hierarchical Inventory**:
   - Support for more complex data structures in inventory
@@ -115,6 +118,104 @@ tsukuyo tsh --with-db
 tsukuyo tsh --with-db michiru_ch_scroll_db
 ```
 
+### Script Management
+
+Create and add a new script:
+
+```bash
+# Add new script (interactive)
+tsukuyo script add
+```
+
+List all available scripts:
+
+```bash
+# List all scripts with descriptions and tags
+tsukuyo script list
+```
+
+Search for scripts:
+
+```bash
+# Search by name, description, or tag
+tsukuyo script search <query>
+
+# Examples:
+tsukuyo script search backup
+tsukuyo script search deploy
+```
+
+Run a script:
+
+```bash
+# Basic execution
+tsukuyo script run <script-name>
+
+# Run with environment variables from file
+tsukuyo script run <script-name> --with-env-file path/to/.env
+
+# Preview script contents without executing (dry run)
+tsukuyo script run <script-name> --dry-run
+
+# Edit script before running
+tsukuyo script run <script-name> --edit
+```
+
+Edit a script:
+
+```bash
+# Opens script in your preferred editor ($EDITOR or vi)
+tsukuyo script edit <script-name>
+```
+
+Delete a script:
+
+```bash
+# Remove a script and its metadata
+tsukuyo script delete <script-name>
+```
+
+#### Example Script Workflows
+
+**1. Create a backup script:**
+```bash
+$ tsukuyo script add
+Script name: backup-postgres
+Description: Backup PostgreSQL database to S3
+Tags (comma separated): backup, postgres, database
+Enter script content (end with EOF/Ctrl+D):
+#!/bin/bash
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+DB_NAME=$1
+BACKUP_PATH="/tmp/${DB_NAME}_${TIMESTAMP}.sql"
+
+echo "Backing up $DB_NAME to $BACKUP_PATH..."
+pg_dump -U postgres $DB_NAME > $BACKUP_PATH
+
+echo "Uploading to S3..."
+aws s3 cp $BACKUP_PATH s3://my-backups/postgres/
+^D
+Script added: backup-postgres
+```
+
+**2. Run with environment variables:**
+```bash
+$ cat .env
+AWS_ACCESS_KEY_ID=AKIAXXXXXXXX
+AWS_SECRET_ACCESS_KEY=xxxxxxxxxx
+AWS_DEFAULT_REGION=us-west-2
+
+$ tsukuyo script run backup-postgres --with-env-file .env
+```
+
+**3. Find scripts for deployment:**
+```bash
+$ tsukuyo script search deploy
+NAME                 DESCRIPTION                                  TAGS                
+deploy-frontend      Deploy frontend app to production            deploy, frontend    
+deploy-api           Deploy API server to staging                 deploy, backend     
+```
+
 ### Inventory Management
 
 Manage database inventory:
@@ -163,7 +264,7 @@ Tsukuyo is built with the following components:
 
 ### Data Storage Schema
 
-- Node inventory: `.data/node-inventory.json`
+- Node inventory: `~/.tsukuyo/inventory/node-inventory.json`
   ```json
   {
     "node-name": {
@@ -176,12 +277,23 @@ Tsukuyo is built with the following components:
   }
   ```
 
-- Database inventory: `.data/db-inventory.json`
+- Database inventory: `~/.tsukuyo/inventory/db-inventory.json`
   ```json
   {
     "db-key": "database-hostname"
   }
   ```
+
+- Script storage:
+  - Script content: `~/.tsukuyo/scripts/<script-name>` (executable files)
+  - Script metadata: `~/.tsukuyo/scripts/<script-name>.meta.json`
+    ```json
+    {
+      "name": "script-name",
+      "description": "What this script does",
+      "tags": ["tag1", "tag2", "category"]
+    }
+    ```
 
 ## 🧰 Tech Stack
 
@@ -192,6 +304,8 @@ Tsukuyo is built with the following components:
   - `encoding/json`: For JSON handling
   - `os/exec`: For executing shell commands
   - `net`: For network operations
+  - `bufio`: For reading script content
+  - `os`: For filesystem operations
 
 ## 🤝 Contributing
 
@@ -205,11 +319,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📝 Roadmap
 
-- Add script inventory functionality
 - Implement hierarchical inventory structure
 - Add support for multiple SSH keys
 - Add configuration options
 - Expand TSH integration capabilities
+- Add support for other script languages (Node.js, Python)
 - Add tests
 
 ## 📄 License
