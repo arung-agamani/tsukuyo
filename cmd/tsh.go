@@ -22,7 +22,7 @@ var tshCmd = &cobra.Command{
 		// Step 1: Ensure tsh login
 		loginCmd := exec.Command("tsh", "status")
 		if err := loginCmd.Run(); err != nil {
-			fmt.Println("You are not logged in to Teleport. Please run 'tsh login' first.")
+			fmt.Fprintln(cmd.OutOrStdout(), "You are not logged in to Teleport. Please run 'tsh login' first.")
 			return
 		}
 
@@ -31,7 +31,7 @@ var tshCmd = &cobra.Command{
 		var out bytes.Buffer
 		lsCmd.Stdout = &out
 		if err := lsCmd.Run(); err != nil {
-			fmt.Println("Failed to list nodes with 'tsh ls'. Is tsh installed and configured?")
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to list nodes with 'tsh ls'. Is tsh installed and configured?")
 			return
 		}
 
@@ -47,7 +47,7 @@ var tshCmd = &cobra.Command{
 		}
 		var nodes []Node
 		if err := json.Unmarshal(out.Bytes(), &nodes); err != nil || len(nodes) == 0 {
-			fmt.Println("Failed to parse tsh ls output.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to parse tsh ls output.")
 			return
 		}
 
@@ -85,7 +85,7 @@ var tshCmd = &cobra.Command{
 		}
 		_, pairLabel, err := prompt.Run()
 		if err != nil {
-			fmt.Println("Prompt failed:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 			return
 		}
 		selectedPair := pairs[0]
@@ -97,7 +97,7 @@ var tshCmd = &cobra.Command{
 		}
 		filtered := pairToNodes[selectedPair]
 		if len(filtered) == 0 {
-			fmt.Println("No nodes found with that label pair.")
+			fmt.Fprintln(cmd.OutOrStdout(), "No nodes found with that label pair.")
 			return
 		}
 
@@ -113,7 +113,7 @@ var tshCmd = &cobra.Command{
 			hostnames = append(hostnames, host)
 		}
 		if len(hostnames) == 0 {
-			fmt.Println("No nodes with a valid hostname found.")
+			fmt.Fprintln(cmd.OutOrStdout(), "No nodes with a valid hostname found.")
 			return
 		}
 		sort.Strings(hostnames)
@@ -123,7 +123,7 @@ var tshCmd = &cobra.Command{
 		}
 		_, hostname, err := prompt.Run()
 		if err != nil {
-			fmt.Println("Prompt failed:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 			return
 		}
 
@@ -131,32 +131,71 @@ var tshCmd = &cobra.Command{
 			withDb = ""
 		}
 		if withDb != "" || cmd.Flags().Changed("with-db") {
-			items := loadDbInventory()
+			// Use hierarchical inventory for DB entries
+			hi, err := getHierarchicalInventory()
+			if err != nil {
+				fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize inventory:", err)
+				return
+			}
+
 			var dbKey, dbHost string
 			if withDb != "" {
 				dbKey = withDb
-				dbHost = items[dbKey]
-				if dbHost == "" {
-					fmt.Println("DB key not found in inventory.")
+				// Query the hierarchical inventory for the DB entry
+				result, err := hi.Query(fmt.Sprintf("db.%s", dbKey))
+				if err != nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "DB key not found in inventory.")
+					return
+				}
+				// Handle different value types - could be a string or object with host field
+				switch v := result.(type) {
+				case string:
+					dbHost = v
+				case map[string]interface{}:
+					if host, ok := v["host"].(string); ok {
+						dbHost = host
+					} else {
+						fmt.Fprintln(cmd.OutOrStdout(), "DB entry missing host field.")
+						return
+					}
+				default:
+					fmt.Fprintln(cmd.OutOrStdout(), "Invalid DB entry format.")
 					return
 				}
 			} else {
-				// Interactive selection
-				if len(items) == 0 {
-					fmt.Println("No DB inventory found.")
+				// Interactive selection - get all DB keys
+				dbKeys, err := hi.List("db")
+				if err != nil || len(dbKeys) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "No DB inventory found.")
 					return
 				}
-				keys := make([]string, 0, len(items))
-				for k := range items {
-					keys = append(keys, k)
-				}
-				prompt := promptui.Select{Label: "Select DB key for tunnel", Items: keys}
+				prompt := promptui.Select{Label: "Select DB key for tunnel", Items: dbKeys}
 				_, dbKey, err = prompt.Run()
 				if err != nil {
-					fmt.Println("Prompt failed:", err)
+					fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 					return
 				}
-				dbHost = items[dbKey]
+				// Query the selected DB entry
+				result, err := hi.Query(fmt.Sprintf("db.%s", dbKey))
+				if err != nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "Failed to get DB entry:", err)
+					return
+				}
+				// Handle different value types
+				switch v := result.(type) {
+				case string:
+					dbHost = v
+				case map[string]interface{}:
+					if host, ok := v["host"].(string); ok {
+						dbHost = host
+					} else {
+						fmt.Fprintln(cmd.OutOrStdout(), "DB entry missing host field.")
+						return
+					}
+				default:
+					fmt.Fprintln(cmd.OutOrStdout(), "Invalid DB entry format.")
+					return
+				}
 			}
 			// Find available local port (start at 5432, skip if in use)
 			localPort := 5432
@@ -168,10 +207,10 @@ var tshCmd = &cobra.Command{
 				}
 			}
 			if localPort >= 5500 {
-				fmt.Println("No available local port found for tunnel.")
+				fmt.Fprintln(cmd.OutOrStdout(), "No available local port found for tunnel.")
 				return
 			}
-			fmt.Printf("Forwarding local port %d to %s:5432\n", localPort, dbHost)
+			fmt.Fprintf(cmd.OutOrStdout(), "Forwarding local port %d to %s:5432\n", localPort, dbHost)
 			sshCmd := exec.Command("tsh", "ssh", "-L", fmt.Sprintf("127.0.0.1:%d:%s:5432", localPort, dbHost), fmt.Sprintf("ubuntu@%s", hostname))
 			sshCmd.Stdin = cmd.InOrStdin()
 			sshCmd.Stdout = cmd.OutOrStdout()
@@ -182,7 +221,7 @@ var tshCmd = &cobra.Command{
 				return
 			}
 			if err != nil {
-				fmt.Println("SSH tunnel exited with error:", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "SSH tunnel exited with error:", err)
 			}
 			return
 		}
@@ -196,7 +235,7 @@ var tshCmd = &cobra.Command{
 			return
 		}
 		if err != nil {
-			fmt.Println("SSH exited with error:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "SSH exited with error:", err)
 		}
 	},
 }

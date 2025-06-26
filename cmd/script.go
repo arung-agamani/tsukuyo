@@ -56,27 +56,27 @@ var scriptAddCmd = &cobra.Command{
 	Short: "Add a new script",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := ensureScriptDirs(); err != nil {
-			fmt.Println("Failed to create scripts dir:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to create scripts dir:", err)
 			return
 		}
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Script name: ")
+		fmt.Fprint(cmd.OutOrStdout(), "Script name: ")
 		name, _ := reader.ReadString('\n')
 		name = strings.TrimSpace(name)
 		if name == "" {
-			fmt.Println("Name required.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Name required.")
 			return
 		}
-		fmt.Print("Description: ")
+		fmt.Fprint(cmd.OutOrStdout(), "Description: ")
 		desc, _ := reader.ReadString('\n')
 		desc = strings.TrimSpace(desc)
-		fmt.Print("Tags (comma separated): ")
+		fmt.Fprint(cmd.OutOrStdout(), "Tags (comma separated): ")
 		tagsStr, _ := reader.ReadString('\n')
 		tags := strings.Split(strings.TrimSpace(tagsStr), ",")
 		for i := range tags {
 			tags[i] = strings.TrimSpace(tags[i])
 		}
-		fmt.Println("Enter script content (end with EOF/Ctrl+D):")
+		fmt.Fprintln(cmd.OutOrStdout(), "Enter script content (end with EOF/Ctrl+D):")
 		var content strings.Builder
 		for {
 			line, err := reader.ReadString('\n')
@@ -86,13 +86,13 @@ var scriptAddCmd = &cobra.Command{
 			content.WriteString(line)
 		}
 		if err := os.WriteFile(scriptFilePath(name), []byte(content.String()), 0755); err != nil {
-			fmt.Println("Failed to write script:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to write script:", err)
 			return
 		}
 		meta := ScriptMeta{Name: name, Description: desc, Tags: tags}
 		metaBytes, _ := json.MarshalIndent(meta, "", "  ")
 		_ = os.WriteFile(scriptMetaPath(name), metaBytes, 0644)
-		fmt.Println("Script added:", name)
+		fmt.Fprintln(cmd.OutOrStdout(), "Script added:", name)
 	},
 }
 
@@ -101,7 +101,7 @@ var scriptListCmd = &cobra.Command{
 	Short: "List all scripts",
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := ensureScriptDirs(); err != nil {
-			fmt.Println("Failed to access scripts dir:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to access scripts dir:", err)
 			return
 		}
 		entries, _ := os.ReadDir(getScriptsDir())
@@ -115,9 +115,9 @@ var scriptListCmd = &cobra.Command{
 			}
 		}
 		sort.Slice(scripts, func(i, j int) bool { return scripts[i].Name < scripts[j].Name })
-		fmt.Printf("%-20s %-40s %-20s\n", "NAME", "DESCRIPTION", "TAGS")
+		fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-40s %-20s\n", "NAME", "DESCRIPTION", "TAGS")
 		for _, s := range scripts {
-			fmt.Printf("%-20s %-40s %-20s\n", s.Name, s.Description, strings.Join(s.Tags, ", "))
+			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-40s %-20s\n", s.Name, s.Description, strings.Join(s.Tags, ", "))
 		}
 	},
 }
@@ -134,14 +134,14 @@ var scriptRunCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := ensureScriptDirs(); err != nil {
-			fmt.Println("Failed to access scripts dir:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to access scripts dir:", err)
 			return
 		}
 		name := args[0]
 		scriptPath := scriptFilePath(name)
 		metaPath := scriptMetaPath(name)
 		if _, err := os.Stat(scriptPath); err != nil {
-			fmt.Println("Script not found:", name)
+			fmt.Fprintln(cmd.OutOrStdout(), "Script not found:", name)
 			return
 		}
 		if runEdit {
@@ -162,18 +162,18 @@ var scriptRunCmd = &cobra.Command{
 			envs = loadEnvFile(runWithEnvFile)
 		}
 		if runDryRun {
-			fmt.Println("--- DRY RUN ---")
+			fmt.Fprintln(cmd.OutOrStdout(), "--- DRY RUN ---")
 			if metaBytes, err := os.ReadFile(metaPath); err == nil {
 				var meta ScriptMeta
 				_ = json.Unmarshal(metaBytes, &meta)
-				fmt.Printf("Name: %s\nDescription: %s\nTags: %s\n", meta.Name, meta.Description, strings.Join(meta.Tags, ", "))
+				fmt.Fprintf(cmd.OutOrStdout(), "Name: %s\nDescription: %s\nTags: %s\n", meta.Name, meta.Description, strings.Join(meta.Tags, ", "))
 			}
-			fmt.Println("Env Vars:")
+			fmt.Fprintln(cmd.OutOrStdout(), "Env Vars:")
 			for k, v := range envs {
-				fmt.Printf("%s=%s\n", k, v)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", k, v)
 			}
-			fmt.Println("Script Content:")
-			fmt.Println(string(content))
+			fmt.Fprintln(cmd.OutOrStdout(), "Script Content:")
+			fmt.Fprintln(cmd.OutOrStdout(), string(content))
 			return
 		}
 		cmdExec := exec.Command("/bin/bash", scriptPath)
@@ -185,7 +185,7 @@ var scriptRunCmd = &cobra.Command{
 		}
 		err := cmdExec.Run()
 		if err != nil {
-			fmt.Println("Script exited with error:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Script exited with error:", err)
 		}
 	},
 }
@@ -193,6 +193,8 @@ var scriptRunCmd = &cobra.Command{
 func loadEnvFile(path string) map[string]string {
 	f, err := os.Open(path)
 	if err != nil {
+		// Note: This function is called from Cobra commands but doesn't have access to cmd
+		// For now keeping fmt.Println since it's a utility function
 		fmt.Println("Failed to open env file:", err)
 		return nil
 	}
@@ -218,13 +220,13 @@ var scriptEditCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := ensureScriptDirs(); err != nil {
-			fmt.Println("Failed to access scripts dir:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to access scripts dir:", err)
 			return
 		}
 		name := args[0]
 		scriptPath := scriptFilePath(name)
 		if _, err := os.Stat(scriptPath); err != nil {
-			fmt.Println("Script not found:", name)
+			fmt.Fprintln(cmd.OutOrStdout(), "Script not found:", name)
 			return
 		}
 		editor := os.Getenv("EDITOR")
@@ -245,15 +247,15 @@ var scriptDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := ensureScriptDirs(); err != nil {
-			fmt.Println("Failed to access scripts dir:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to access scripts dir:", err)
 			return
 		}
 		name := args[0]
 		if err := os.Remove(scriptFilePath(name)); err != nil {
-			fmt.Println("Failed to delete script:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to delete script:", err)
 		}
 		_ = os.Remove(scriptMetaPath(name))
-		fmt.Println("Deleted script:", name)
+		fmt.Fprintln(cmd.OutOrStdout(), "Deleted script:", name)
 	},
 }
 
@@ -263,7 +265,7 @@ var scriptSearchCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := ensureScriptDirs(); err != nil {
-			fmt.Println("Failed to access scripts dir:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to access scripts dir:", err)
 			return
 		}
 		query := strings.ToLower(strings.Join(args, " "))
@@ -282,12 +284,12 @@ var scriptSearchCmd = &cobra.Command{
 			}
 		}
 		if len(scripts) == 0 {
-			fmt.Println("No scripts found matching query.")
+			fmt.Fprintln(cmd.OutOrStdout(), "No scripts found matching query.")
 			return
 		}
-		fmt.Printf("%-20s %-40s %-20s\n", "NAME", "DESCRIPTION", "TAGS")
+		fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-40s %-20s\n", "NAME", "DESCRIPTION", "TAGS")
 		for _, s := range scripts {
-			fmt.Printf("%-20s %-40s %-20s\n", s.Name, s.Description, strings.Join(s.Tags, ", "))
+			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-40s %-20s\n", s.Name, s.Description, strings.Join(s.Tags, ", "))
 		}
 	},
 }

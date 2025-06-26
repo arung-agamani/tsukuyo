@@ -40,7 +40,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		hi, err := getHierarchicalInventory()
 		if err != nil {
-			fmt.Println("Failed to initialize hierarchical inventory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize hierarchical inventory:", err)
 			return
 		}
 
@@ -54,14 +54,14 @@ Examples:
 			}
 			query, err = prompt.Run()
 			if err != nil {
-				fmt.Println("Prompt failed:", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 				return
 			}
 		}
 
 		result, err := hi.Query(query)
 		if err != nil {
-			fmt.Println("Query failed:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Query failed:", err)
 			return
 		}
 
@@ -70,12 +70,12 @@ Examples:
 			// Root query - show available top-level keys
 			keys, err := hi.List("")
 			if err != nil {
-				fmt.Println("Failed to list keys:", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "Failed to list keys:", err)
 				return
 			}
-			fmt.Println("Available top-level keys:")
+			fmt.Fprintln(cmd.OutOrStdout(), "Available top-level keys:")
 			for _, key := range keys {
-				fmt.Println("-", key)
+				fmt.Fprintln(cmd.OutOrStdout(), "-", key)
 			}
 			return
 		}
@@ -83,16 +83,16 @@ Examples:
 		// Format the result for display
 		switch v := result.(type) {
 		case string:
-			fmt.Println(v)
+			fmt.Fprintln(cmd.OutOrStdout(), v)
 		case map[string]interface{}, []interface{}:
 			jsonBytes, err := json.MarshalIndent(v, "", "  ")
 			if err != nil {
-				fmt.Printf("%v\n", v)
+				fmt.Fprintf(cmd.OutOrStdout(), "%v\n", v)
 			} else {
-				fmt.Println(string(jsonBytes))
+				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 			}
 		default:
-			fmt.Printf("%v\n", v)
+			fmt.Fprintf(cmd.OutOrStdout(), "%v\n", v)
 		}
 	},
 }
@@ -110,7 +110,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		hi, err := getHierarchicalInventory()
 		if err != nil {
-			fmt.Println("Failed to initialize hierarchical inventory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize hierarchical inventory:", err)
 			return
 		}
 
@@ -123,7 +123,7 @@ Examples:
 			}
 			query, err = prompt.Run()
 			if err != nil {
-				fmt.Println("Prompt failed:", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 				return
 			}
 		}
@@ -136,13 +136,13 @@ Examples:
 			}
 			valueStr, err = prompt.Run()
 			if err != nil {
-				fmt.Println("Prompt failed:", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 				return
 			}
 		}
 
 		if query == "" || valueStr == "" {
-			fmt.Println("Both query and value must be provided.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Both query and value must be provided.")
 			return
 		}
 
@@ -155,11 +155,11 @@ Examples:
 
 		err = hi.Set(query, value)
 		if err != nil {
-			fmt.Println("Failed to set value:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to set value:", err)
 			return
 		}
 
-		fmt.Printf("Set %s = %v\n", query, value)
+		fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %v\n", query, value)
 	},
 }
 
@@ -175,7 +175,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		hi, err := getHierarchicalInventory()
 		if err != nil {
-			fmt.Println("Failed to initialize hierarchical inventory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize hierarchical inventory:", err)
 			return
 		}
 
@@ -188,23 +188,23 @@ Examples:
 			}
 			query, err = prompt.Run()
 			if err != nil {
-				fmt.Println("Prompt failed:", err)
+				fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 				return
 			}
 		}
 
 		if query == "" {
-			fmt.Println("Query must be provided.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Query must be provided.")
 			return
 		}
 
 		err = hi.Delete(query)
 		if err != nil {
-			fmt.Println("Failed to delete:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to delete:", err)
 			return
 		}
 
-		fmt.Printf("Deleted %s\n", query)
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", query)
 	},
 }
 
@@ -221,7 +221,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		hi, err := getHierarchicalInventory()
 		if err != nil {
-			fmt.Println("Failed to initialize hierarchical inventory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize hierarchical inventory:", err)
 			return
 		}
 
@@ -232,22 +232,22 @@ Examples:
 
 		keys, err := hi.List(query)
 		if err != nil {
-			fmt.Println("Failed to list keys:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to list keys:", err)
 			return
 		}
 
 		if len(keys) == 0 {
-			fmt.Printf("No keys found at path '%s'\n", query)
+			fmt.Fprintf(cmd.OutOrStdout(), "No keys found at path '%s'\n", query)
 			return
 		}
 
 		if query == "" {
-			fmt.Println("Available keys:")
+			fmt.Fprintln(cmd.OutOrStdout(), "Available keys:")
 		} else {
-			fmt.Printf("Keys at '%s':\n", query)
+			fmt.Fprintf(cmd.OutOrStdout(), "Keys at '%s':\n", query)
 		}
 		for _, key := range keys {
-			fmt.Println("-", key)
+			fmt.Fprintln(cmd.OutOrStdout(), "-", key)
 		}
 	},
 }
@@ -260,7 +260,7 @@ This will migrate db-inventory.json, node-inventory.json, etc. into a unified st
 	Run: func(cmd *cobra.Command, args []string) {
 		hi, err := getHierarchicalInventory()
 		if err != nil {
-			fmt.Println("Failed to initialize hierarchical inventory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize hierarchical inventory:", err)
 			return
 		}
 
@@ -269,32 +269,32 @@ This will migrate db-inventory.json, node-inventory.json, etc. into a unified st
 		dataDir := getDataDir()
 		files, err := os.ReadDir(dataDir)
 		if err != nil {
-			fmt.Println("Failed to read data directory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to read data directory:", err)
 			return
 		}
 
 		imported := 0
 		for _, file := range files {
 			if strings.HasSuffix(file.Name(), "-inventory.json") && file.Name() != "hierarchical-inventory.json" {
-				fmt.Printf("Found legacy inventory file: %s\n", file.Name())
+				fmt.Fprintf(cmd.OutOrStdout(), "Found legacy inventory file: %s\n", file.Name())
 				imported++
 			}
 		}
 
 		if imported == 0 {
-			fmt.Println("No legacy inventory files found.")
+			fmt.Fprintln(cmd.OutOrStdout(), "No legacy inventory files found.")
 			return
 		}
 
-		fmt.Printf("Imported %d legacy inventory files into hierarchical format.\n", imported)
-		fmt.Println("You can now use 'tsukuyo inventory query' to access the data.")
+		fmt.Fprintf(cmd.OutOrStdout(), "Imported %d legacy inventory files into hierarchical format.\n", imported)
+		fmt.Fprintln(cmd.OutOrStdout(), "You can now use 'tsukuyo inventory query' to access the data.")
 
 		// Show available top-level keys
 		keys, err := hi.List("")
 		if err == nil && len(keys) > 0 {
-			fmt.Println("\nAvailable top-level keys:")
+			fmt.Fprintln(cmd.OutOrStdout(), "\nAvailable top-level keys:")
 			for _, key := range keys {
-				fmt.Println("-", key)
+				fmt.Fprintln(cmd.OutOrStdout(), "-", key)
 			}
 		}
 	},

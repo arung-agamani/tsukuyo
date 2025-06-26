@@ -9,15 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NodeInventoryEntry represents a node entry for SSH
-type NodeInventoryEntry struct {
-	Name string `json:"name"`
-	Host string `json:"host"`
-	Type string `json:"type"`
-	Port int    `json:"port,omitempty"`
-	User string `json:"user,omitempty"`
-}
-
 var sshCmd = &cobra.Command{
 	Use:   "ssh",
 	Short: "Connect to a node using standard SSH client or manage SSH node inventory",
@@ -28,14 +19,21 @@ Supports SSH tunneling with --tunnel flag.`,
 	Args: cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
-			fmt.Println("Usage: tsukuyo ssh <node-name>|set|get|list [args]")
+			fmt.Fprintln(cmd.OutOrStdout(), "Usage: tsukuyo ssh <node-name>|set|get|list [args]")
 			return
 		}
+
+		// Get hierarchical inventory
+		hi, err := getHierarchicalInventory()
+		if err != nil {
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize inventory:", err)
+			return
+		}
+
 		cmds := map[string]bool{"set": true, "get": true, "list": true}
 		if cmds[args[0]] {
 			switch args[0] {
 			case "set":
-				items := loadNodeInventory()
 				var name, host, user string
 				if len(args) > 1 {
 					name = args[1]
@@ -44,7 +42,7 @@ Supports SSH tunneling with --tunnel flag.`,
 					name, _ = prompt.Run()
 				}
 				if name == "set" || name == "get" || name == "list" {
-					fmt.Println("Invalid node name: cannot be 'set', 'get', or 'list'.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Invalid node name: cannot be 'set', 'get', or 'list'.")
 					return
 				}
 				if len(args) > 2 {
@@ -54,7 +52,7 @@ Supports SSH tunneling with --tunnel flag.`,
 					host, _ = prompt.Run()
 				}
 				if name == "" || host == "" {
-					fmt.Println("Name and host must not be empty.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Name and host must not be empty.")
 					return
 				}
 				// Prompt for user, default to current shell user
@@ -64,66 +62,129 @@ Supports SSH tunneling with --tunnel flag.`,
 				prompt := promptui.Prompt{Label: "SSH user", Default: user}
 				user, _ = prompt.Run()
 				if user == "" {
-					fmt.Println("User must not be empty.")
+					fmt.Fprintln(cmd.OutOrStdout(), "User must not be empty.")
 					return
 				}
-				entry := NodeInventoryEntry{Name: name, Host: host, Type: "ssh", User: user}
-				items[name] = entry
-				saveNodeInventory(items)
-				fmt.Printf("Node '%s' set to host '%s' with user '%s'\n", name, host, user)
+
+				// Create node entry in hierarchical inventory
+				nodeData := map[string]interface{}{
+					"name": name,
+					"host": host,
+					"type": "ssh",
+					"user": user,
+				}
+
+				path := fmt.Sprintf("node.%s", name)
+				err = hi.Set(path, nodeData)
+				if err != nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "Failed to set node:", err)
+					return
+				}
+
+				fmt.Fprintf(cmd.OutOrStdout(), "Node '%s' set to host '%s' with user '%s'\n", name, host, user)
+
 			case "get":
-				items := loadNodeInventory()
-				if len(items) == 0 {
-					fmt.Println("No SSH node inventory found.")
+				nodeKeys, err := hi.List("node")
+				if err != nil || len(nodeKeys) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "No SSH node inventory found.")
 					return
 				}
+
 				var name string
 				if len(args) > 1 {
 					name = args[1]
 				} else {
-					keys := make([]string, 0, len(items))
-					for k := range items {
-						keys = append(keys, k)
-					}
-					prompt := promptui.Select{Label: "Select node", Items: keys}
+					prompt := promptui.Select{Label: "Select node", Items: nodeKeys}
 					_, name, _ = prompt.Run()
 				}
-				entry, ok := items[name]
+
+				result, err := hi.Query(fmt.Sprintf("node.%s", name))
+				if err != nil {
+					fmt.Fprintln(cmd.OutOrStdout(), "Node not found.")
+					return
+				}
+
+				// Parse the node data
+				nodeData, ok := result.(map[string]interface{})
 				if !ok {
-					fmt.Println("Node not found.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Invalid node data format.")
 					return
 				}
-				fmt.Printf("%s: host=%s, type=%s, port=%d, user=%s\n", entry.Name, entry.Host, entry.Type, entry.Port, entry.User)
+
+				host, _ := nodeData["host"].(string)
+				nodeType, _ := nodeData["type"].(string)
+				user, _ := nodeData["user"].(string)
+				port := 22 // default
+				if p, ok := nodeData["port"].(float64); ok {
+					port = int(p)
+				}
+
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: host=%s, type=%s, port=%d, user=%s\n", name, host, nodeType, port, user)
+
 			case "list":
-				items := loadNodeInventory()
-				if len(items) == 0 {
-					fmt.Println("No SSH node inventory found.")
+				nodeKeys, err := hi.List("node")
+				if err != nil || len(nodeKeys) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "No SSH node inventory found.")
 					return
 				}
-				fmt.Println("Available SSH nodes:")
-				for _, entry := range items {
-					fmt.Printf("- %s: host=%s, type=%s, port=%d, user=%s\n", entry.Name, entry.Host, entry.Type, entry.Port, entry.User)
+
+				fmt.Fprintln(cmd.OutOrStdout(), "Available SSH nodes:")
+				for _, nodeName := range nodeKeys {
+					result, err := hi.Query(fmt.Sprintf("node.%s", nodeName))
+					if err != nil {
+						continue
+					}
+
+					nodeData, ok := result.(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					host, _ := nodeData["host"].(string)
+					nodeType, _ := nodeData["type"].(string)
+					user, _ := nodeData["user"].(string)
+					port := 22 // default
+					if p, ok := nodeData["port"].(float64); ok {
+						port = int(p)
+					}
+
+					fmt.Fprintf(cmd.OutOrStdout(), "- %s: host=%s, type=%s, port=%d, user=%s\n", nodeName, host, nodeType, port, user)
 				}
 			}
 			return
 		}
+
 		// Not a command, treat as node name
 		name := args[0]
-		items := loadNodeInventory()
-		entry, ok := items[name]
-		if !ok {
-			fmt.Println("Node or command not found.")
+		result, err := hi.Query(fmt.Sprintf("node.%s", name))
+		if err != nil {
+			fmt.Fprintln(cmd.OutOrStdout(), "Node or command not found.")
 			return
 		}
-		user := entry.User
+
+		// Parse the node data
+		nodeData, ok := result.(map[string]interface{})
+		if !ok {
+			fmt.Fprintln(cmd.OutOrStdout(), "Invalid node data format.")
+			return
+		}
+
+		host, _ := nodeData["host"].(string)
+		user, _ := nodeData["user"].(string)
 		if user == "" {
 			user = "ubuntu"
 		}
+
+		port := 22 // default
+		if p, ok := nodeData["port"].(float64); ok {
+			port = int(p)
+		}
+
 		sshArgs := []string{}
-		if entry.Port != 0 {
-			sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", user, entry.Host), "-p", fmt.Sprintf("%d", entry.Port))
+		if port != 22 {
+			sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", user, host), "-p", fmt.Sprintf("%d", port))
 		} else {
-			sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", user, entry.Host))
+			sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", user, host))
 		}
 		if tunnelTarget != "" {
 			sshArgs = append([]string{"-L", tunnelTarget}, sshArgs...)
@@ -132,9 +193,9 @@ Supports SSH tunneling with --tunnel flag.`,
 		sshExec.Stdin = cmd.InOrStdin()
 		sshExec.Stdout = cmd.OutOrStdout()
 		sshExec.Stderr = cmd.ErrOrStderr()
-		err := sshExec.Run()
+		err = sshExec.Run()
 		if err != nil {
-			fmt.Println("SSH exited with error:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "SSH exited with error:", err)
 		}
 	},
 }

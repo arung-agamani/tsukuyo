@@ -17,9 +17,6 @@ var inventoryCmd = &cobra.Command{
 	Use:   "inventory",
 	Short: "Manage local hierarchical inventory store",
 	Long:  `Manage a local key-value inventory with hierarchical structure, similar to jq queries.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		showInventoryHelp(cmd)
-	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// If no args, show help
 		if len(args) == 0 {
@@ -31,7 +28,7 @@ var inventoryCmd = &cobra.Command{
 		typeName := args[0]
 		hi, err := getHierarchicalInventory()
 		if err != nil {
-			fmt.Println("Failed to initialize inventory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Failed to initialize inventory:", err)
 			return nil
 		}
 
@@ -41,7 +38,7 @@ var inventoryCmd = &cobra.Command{
 			for _, key := range keys {
 				if key == typeName {
 					// This is a dynamic type command
-					return handleDynamicTypeCommand(hi, args)
+					return handleDynamicTypeCommand(cmd, hi, args)
 				}
 			}
 		}
@@ -80,7 +77,7 @@ var inventoryMigrateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			fmt.Println("Could not determine home directory:", err)
+			fmt.Fprintln(cmd.OutOrStdout(), "Could not determine home directory:", err)
 			return
 		}
 		oldDir := ".data"
@@ -92,17 +89,17 @@ var inventoryMigrateCmd = &cobra.Command{
 			if _, err := os.Stat(oldPath); err == nil {
 				b, err := os.ReadFile(oldPath)
 				if err != nil {
-					fmt.Println("Failed to read", oldPath, ":", err)
+					fmt.Fprintln(cmd.OutOrStdout(), "Failed to read", oldPath, ":", err)
 					continue
 				}
 				err = os.WriteFile(newPath, b, 0644)
 				if err != nil {
-					fmt.Println("Failed to write", newPath, ":", err)
+					fmt.Fprintln(cmd.OutOrStdout(), "Failed to write", newPath, ":", err)
 					continue
 				}
-				fmt.Println("Migrated", f, "to", newPath)
+				fmt.Fprintln(cmd.OutOrStdout(), "Migrated", f, "to", newPath)
 			} else {
-				fmt.Println("No", f, "found in", oldDir)
+				fmt.Fprintln(cmd.OutOrStdout(), "No", f, "found in", oldDir)
 			}
 		}
 	},
@@ -116,51 +113,55 @@ func init() {
 
 // showInventoryHelp displays the main inventory help with dynamic types
 func showInventoryHelp(cmd *cobra.Command) {
+	out := cmd.OutOrStdout()
+
 	// Get available inventory types dynamically
 	hi, err := getHierarchicalInventory()
 	if err != nil {
-		fmt.Println("Failed to initialize inventory:", err)
+		fmt.Fprintln(out, "Failed to initialize inventory:", err)
 		return
 	}
 
 	// Get top-level keys (inventory types)
 	keys, err := hi.List("")
 	if err != nil || len(keys) == 0 {
-		fmt.Println("No inventory data found.")
-		fmt.Println("\nQuick start:")
-		fmt.Println("  tsukuyo inventory set db.server1.host \"example.com\"")
-		fmt.Println("  tsukuyo inventory set node.web1.host \"192.168.1.10\"")
+		fmt.Fprintln(out, "No inventory data found.")
+		fmt.Fprintln(out, "\nQuick start:")
+		fmt.Fprintln(out, "  tsukuyo inventory set db.server1.host \"example.com\"")
+		fmt.Fprintln(out, "  tsukuyo inventory set node.web1.host \"192.168.1.10\"")
 		return
 	}
 
-	fmt.Println("🗄️  Hierarchical Inventory Management")
-	fmt.Println()
-	fmt.Println("Available inventory types:")
+	fmt.Fprintln(out, "🗄️  Hierarchical Inventory Management")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Available inventory types:")
 	for _, key := range keys {
-		fmt.Printf("  - %-10s (tsukuyo inventory %s list)\n", key, key)
+		fmt.Fprintf(out, "  - %-10s (tsukuyo inventory %s list)\n", key, key)
 	}
 
-	fmt.Println()
-	fmt.Println("📋 Query Commands:")
-	fmt.Println("  tsukuyo inventory query <path>          # Query any data path")
-	fmt.Println("  tsukuyo inventory query db.server1.host # Query specific value")
-	fmt.Println("  tsukuyo inventory query db.[*].host     # Query with wildcards")
-	fmt.Println()
-	fmt.Println("⚙️  Management Commands:")
-	fmt.Println("  tsukuyo inventory set <path> <value>    # Set a value")
-	fmt.Println("  tsukuyo inventory delete <path>         # Delete a value")
-	fmt.Println("  tsukuyo inventory list [path]           # List keys at path")
-	fmt.Println()
-	fmt.Println("🏷️  Type-specific Commands:")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "📋 Query Commands:")
+	fmt.Fprintln(out, "  tsukuyo inventory query <path>          # Query any data path")
+	fmt.Fprintln(out, "  tsukuyo inventory query db.server1.host # Query specific value")
+	fmt.Fprintln(out, "  tsukuyo inventory query db.[*].host     # Query with wildcards")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "⚙️  Management Commands:")
+	fmt.Fprintln(out, "  tsukuyo inventory set <path> <value>    # Set a value")
+	fmt.Fprintln(out, "  tsukuyo inventory delete <path>         # Delete a value")
+	fmt.Fprintln(out, "  tsukuyo inventory list [path]           # List keys at path")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "🏷️  Type-specific Commands:")
 	for _, key := range keys {
-		fmt.Printf("  tsukuyo inventory %-8s list         # List all %s entries\n", key, key)
-		fmt.Printf("  tsukuyo inventory %-8s get <name>   # Get specific %s entry\n", key, key)
-		fmt.Printf("  tsukuyo inventory %-8s set <name> <value> # Set %s entry\n", key, key)
+		fmt.Fprintf(out, "  tsukuyo inventory %-8s list         # List all %s entries\n", key, key)
+		fmt.Fprintf(out, "  tsukuyo inventory %-8s get <n>   # Get specific %s entry\n", key, key)
+		fmt.Fprintf(out, "  tsukuyo inventory %-8s set <n> <value> # Set %s entry\n", key, key)
 	}
 }
 
 // handleDynamicTypeCommand handles commands for dynamically discovered inventory types
-func handleDynamicTypeCommand(hi *inventory.HierarchicalInventory, args []string) error {
+func handleDynamicTypeCommand(cmd *cobra.Command, hi *inventory.HierarchicalInventory, args []string) error {
+	out := cmd.OutOrStdout()
+
 	if len(args) == 0 {
 		return fmt.Errorf("no type specified")
 	}
@@ -171,13 +172,13 @@ func handleDynamicTypeCommand(hi *inventory.HierarchicalInventory, args []string
 	// Handle subcommands
 	if len(subArgs) == 0 {
 		// Show help for this type
-		fmt.Printf("📁 %s Inventory\n", strings.Title(typeName))
-		fmt.Printf("Use 'tsukuyo inventory %s <command>' where <command> is:\n", typeName)
-		fmt.Printf("  list                    # List all %s entries\n", typeName)
-		fmt.Printf("  get <name>              # Get specific %s entry\n", typeName)
-		fmt.Printf("  set <name> <value>      # Set %s entry\n", typeName)
-		fmt.Printf("\nOr use hierarchical queries:\n")
-		fmt.Printf("  tsukuyo inventory query %s.<name>.<field>\n", typeName)
+		fmt.Fprintf(out, "📁 %s Inventory\n", strings.Title(typeName))
+		fmt.Fprintf(out, "Use 'tsukuyo inventory %s <command>' where <command> is:\n", typeName)
+		fmt.Fprintf(out, "  list                    # List all %s entries\n", typeName)
+		fmt.Fprintf(out, "  get <n>              # Get specific %s entry\n", typeName)
+		fmt.Fprintf(out, "  set <n> <value>      # Set %s entry\n", typeName)
+		fmt.Fprintf(out, "\nOr use hierarchical queries:\n")
+		fmt.Fprintf(out, "  tsukuyo inventory query %s.<n>.<field>\n", typeName)
 		return nil
 	}
 
@@ -186,38 +187,43 @@ func handleDynamicTypeCommand(hi *inventory.HierarchicalInventory, args []string
 
 	switch subCommand {
 	case "list":
-		return handleTypeList(hi, typeName)
+		return handleTypeList(cmd, hi, typeName)
 	case "get":
-		return handleTypeGet(hi, typeName, subSubArgs)
+		return handleTypeGet(cmd, hi, typeName, subSubArgs)
 	case "set":
-		return handleTypeSet(hi, typeName, subSubArgs)
+		return handleTypeSet(cmd, hi, typeName, subSubArgs)
 	default:
-		return fmt.Errorf("unknown subcommand '%s'. Available: list, get, set", subCommand)
+		errorMsg := fmt.Sprintf("unknown subcommand '%s'. Available: list, get, set", subCommand)
+		fmt.Fprintln(out, errorMsg)
+		return fmt.Errorf(errorMsg)
 	}
 }
 
 // Handler functions for dynamic type commands
 
-func handleTypeList(hi *inventory.HierarchicalInventory, typeName string) error {
+func handleTypeList(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typeName string) error {
+	out := cmd.OutOrStdout()
+
 	keys, err := hi.List(typeName)
 	if err != nil {
-		fmt.Printf("No %s entries found.\n", typeName)
+		fmt.Fprintf(out, "No %s entries found.\n", typeName)
 		return nil
 	}
 
 	if len(keys) == 0 {
-		fmt.Printf("No %s entries found.\n", typeName)
+		fmt.Fprintf(out, "No %s entries found.\n", typeName)
 		return nil
 	}
 
-	fmt.Printf("Available %s entries:\n", typeName)
+	fmt.Fprintf(out, "Available %s entries:\n", typeName)
 	for _, key := range keys {
-		fmt.Printf("  - %s\n", key)
+		fmt.Fprintf(out, "  - %s\n", key)
 	}
 	return nil
 }
 
-func handleTypeGet(hi *inventory.HierarchicalInventory, typeName string, args []string) error {
+func handleTypeGet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typeName string, args []string) error {
+	out := cmd.OutOrStdout()
 	var name string
 	var err error
 
@@ -227,7 +233,7 @@ func handleTypeGet(hi *inventory.HierarchicalInventory, typeName string, args []
 		// Interactive selection
 		keys, err := hi.List(typeName)
 		if err != nil || len(keys) == 0 {
-			fmt.Printf("No %s entries found.\n", typeName)
+			fmt.Fprintf(out, "No %s entries found.\n", typeName)
 			return nil
 		}
 
@@ -243,28 +249,29 @@ func handleTypeGet(hi *inventory.HierarchicalInventory, typeName string, args []
 
 	result, err := hi.Query(fmt.Sprintf("%s.%s", typeName, name))
 	if err != nil {
-		fmt.Printf("Entry '%s' not found in %s inventory.\n", name, typeName)
+		fmt.Fprintf(out, "Entry '%s' not found in %s inventory.\n", name, typeName)
 		return nil
 	}
 
-	fmt.Printf("%s.%s:\n", typeName, name)
+	fmt.Fprintf(out, "%s.%s:\n", typeName, name)
 	switch v := result.(type) {
 	case string:
-		fmt.Printf("  %s\n", v)
+		fmt.Fprintf(out, "  %s\n", v)
 	case map[string]interface{}, []interface{}:
 		jsonBytes, err := json.MarshalIndent(v, "  ", "  ")
 		if err != nil {
-			fmt.Printf("  %v\n", v)
+			fmt.Fprintf(out, "  %v\n", v)
 		} else {
-			fmt.Printf("  %s\n", string(jsonBytes))
+			fmt.Fprintf(out, "  %s\n", string(jsonBytes))
 		}
 	default:
-		fmt.Printf("  %v\n", v)
+		fmt.Fprintf(out, "  %v\n", v)
 	}
 	return nil
 }
 
-func handleTypeSet(hi *inventory.HierarchicalInventory, typeName string, args []string) error {
+func handleTypeSet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typeName string, args []string) error {
+	out := cmd.OutOrStdout()
 	var name, valueStr string
 	var err error
 
@@ -304,6 +311,6 @@ func handleTypeSet(hi *inventory.HierarchicalInventory, typeName string, args []
 		return fmt.Errorf("failed to set %s: %v", path, err)
 	}
 
-	fmt.Printf("Set %s = %v\n", path, value)
+	fmt.Fprintf(out, "Set %s = %v\n", path, value)
 	return nil
 }
