@@ -14,40 +14,68 @@ Tsukuyo is a command-line tool designed to automate and streamline various opera
 
 ### Implemented Features
 
-- **SSH Connection Management**
-  - **Standard SSH**: Connect to hosts using standard OpenSSH client with saved configurations
-  - **Teleport SSH (TSH)**: Interactive wizard for connecting to hosts via Teleport SSH
-  - **SSH Tunneling**: Support for port forwarding with both SSH and TSH
+-   **SSH Connection Management**
 
-- **Inventory Management**
-  - **Node Inventory**: Store SSH connection details (hostname, user, port)
-  - **Database Inventory**: Store database connection details
-  - **Interactive Selection**: User-friendly prompts for selecting from available options
+    -   **Standard SSH**: Connect to hosts using standard OpenSSH client with saved configurations
+    -   **Teleport SSH (TSH)**: Interactive wizard for connecting to hosts via Teleport SSH
+    -   **SSH Tunneling**: Support for port forwarding with both SSH and TSH
 
-- **Script Management**
-  - **Script Library**: Store, organize, and execute shell scripts
-  - **Environment Variable Support**: Run scripts with environment variables from files
-  - **Script Metadata**: Add descriptions and tags for organization
-  - **Editor Integration**: Edit scripts directly from the CLI
-  - **Search & Filter**: Find scripts by name, tag, or description
+-   **Inventory Management**
 
-- **Data Persistence**
-  - Local storage in `~/.tsukuyo` directory
-  - Individual script files with metadata
-  - JSON-based storage format
+    -   **Node Inventory**: Store SSH connection details (hostname, user, port)
+    -   **Database Inventory**: Store database connection details
+    -   **Hierarchical Inventory**: Query complex nested data structures with jq-like syntax
+    -   **Interactive Selection**: User-friendly prompts for selecting from available options
 
-### Planned Features
+-   **Script Management**
 
-- **Hierarchical Inventory**:
-  - Support for more complex data structures in inventory
-  - Query similar to `jq` for structured data
+    -   **Script Library**: Store, organize, and execute shell scripts
+    -   **Environment Variable Support**: Run scripts with environment variables from files
+    -   **Script Metadata**: Add descriptions and tags for organization
+    -   **Editor Integration**: Edit scripts directly from the CLI
+    -   **Search & Filter**: Find scripts by name, tag, or description
+
+-   **Data Persistence**
+    -   Local storage in `~/.tsukuyo` directory
+    -   Individual script files with metadata
+    -   JSON-based storage format
+    -   Hierarchical inventory with flexible data structures
+
+### Implemented Features
+
+-   **SSH Connection Management**
+
+    -   **Standard SSH**: Connect to hosts using standard OpenSSH client with saved configurations
+    -   **Teleport SSH (TSH)**: Interactive wizard for connecting to hosts via Teleport SSH
+    -   **SSH Tunneling**: Support for port forwarding with both SSH and TSH
+
+-   **Inventory Management**
+
+    -   **Node Inventory**: Store SSH connection details (hostname, user, port)
+    -   **Database Inventory**: Store database connection details
+    -   **Hierarchical Inventory**: Query complex nested data structures with jq-like syntax
+    -   **Interactive Selection**: User-friendly prompts for selecting from available options
+
+-   **Script Management**
+
+    -   **Script Library**: Store, organize, and execute shell scripts
+    -   **Environment Variable Support**: Run scripts with environment variables from files
+    -   **Script Metadata**: Add descriptions and tags for organization
+    -   **Editor Integration**: Edit scripts directly from the CLI
+    -   **Search & Filter**: Find scripts by name, tag, or description
+
+-   **Data Persistence**
+    -   Local storage in `~/.tsukuyo` directory
+    -   Individual script files with metadata
+    -   JSON-based storage format
+    -   Hierarchical inventory with flexible data structures
 
 ## 🚀 Installation
 
 ### Prerequisites
 
-- Go 1.22 or higher
-- For TSH functionality: [Teleport](https://goteleport.com/docs/installation/) client installed and configured
+-   Go 1.22 or higher
+-   For TSH functionality: [Teleport](https://goteleport.com/docs/installation/) client installed and configured
 
 ### Build from Source
 
@@ -178,6 +206,7 @@ tsukuyo script delete <script-name>
 #### Example Script Workflows
 
 **1. Create a backup script:**
+
 ```bash
 $ tsukuyo script add
 Script name: backup-postgres
@@ -199,6 +228,7 @@ Script added: backup-postgres
 ```
 
 **2. Run with environment variables:**
+
 ```bash
 $ cat .env
 AWS_ACCESS_KEY_ID=AKIAXXXXXXXX
@@ -209,16 +239,105 @@ $ tsukuyo script run backup-postgres --with-env-file .env
 ```
 
 **3. Find scripts for deployment:**
+
 ```bash
 $ tsukuyo script search deploy
-NAME                 DESCRIPTION                                  TAGS                
-deploy-frontend      Deploy frontend app to production            deploy, frontend    
-deploy-api           Deploy API server to staging                 deploy, backend     
+NAME                 DESCRIPTION                                  TAGS
+deploy-frontend      Deploy frontend app to production            deploy, frontend
+deploy-api           Deploy API server to staging                 deploy, backend
 ```
 
-### Inventory Management
+### Hierarchical Inventory
 
-Manage database inventory:
+The hierarchical inventory system provides a powerful way to store and query complex nested data structures using jq-like syntax.
+
+#### Basic Usage
+
+**Set values:**
+
+```bash
+# Set simple values
+tsukuyo inventory set db.izuna-db.host "kureya.howlingmoon.dev"
+tsukuyo inventory set db.izuna-db.port 2333
+tsukuyo inventory set db.izuna-db.user "admin"
+
+# Set complex JSON structures
+tsukuyo inventory set servers.web '[{"name":"web-1","host":"192.168.1.10"},{"name":"web-2","host":"192.168.1.11"}]'
+```
+
+**Query values:**
+
+```bash
+# Query specific values
+tsukuyo inventory query db.izuna-db.port
+# Output: 2333
+
+# Query entire objects
+tsukuyo inventory query db.izuna-db
+# Output: {"host":"kureya.howlingmoon.dev","port":2333,"user":"admin"}
+
+# Query top-level categories
+tsukuyo inventory query db
+# Output: {"izuna-db":{"host":"kureya.howlingmoon.dev","port":2333,"user":"admin"}}
+```
+
+**Array queries:**
+
+```bash
+# Access array elements by index
+tsukuyo inventory query servers.web.[0].name
+# Output: web-1
+
+# Use wildcards to query all elements
+tsukuyo inventory query servers.web.[*].host
+# Output: ["192.168.1.10","192.168.1.11"]
+```
+
+**List and delete:**
+
+```bash
+# List keys at any level
+tsukuyo inventory list db
+# Shows: izuna-db
+
+# Delete values
+tsukuyo inventory delete db.izuna-db.port
+```
+
+#### Advanced Examples
+
+**Complex server inventory:**
+
+```bash
+# Set up environment-based server configuration
+tsukuyo inventory set environments.production.servers '[{"name":"web-prod-1","host":"10.0.1.10","role":"web"},{"name":"db-prod-1","host":"10.0.1.20","role":"database"}]'
+tsukuyo inventory set environments.staging.servers '[{"name":"web-stage-1","host":"10.0.2.10","role":"web"}]'
+
+# Query all production servers
+tsukuyo inventory query environments.production.servers
+
+# Get all server names in production
+tsukuyo inventory query environments.production.servers.[*].name
+
+# Get database servers across environments
+tsukuyo inventory query environments.[*].servers.[*].host
+```
+
+**Configuration management:**
+
+```bash
+# Store application configurations
+tsukuyo inventory set config.app.debug true
+tsukuyo inventory set config.app.workers 8
+tsukuyo inventory set config.database.pool_size 20
+
+# Query entire configuration
+tsukuyo inventory query config
+```
+
+### Legacy Inventory Management
+
+Manage database inventory (legacy):
 
 ```bash
 # List all database entries
@@ -234,7 +353,7 @@ tsukuyo inventory db set <key> <value>
 tsukuyo inventory db get
 ```
 
-Manage node inventory:
+Manage node inventory (legacy):
 
 ```bash
 # List all nodes
@@ -264,48 +383,139 @@ Tsukuyo is built with the following components:
 
 ### Data Storage Schema
 
-- Node inventory: `~/.tsukuyo/inventory/node-inventory.json`
-  ```json
-  {
-    "node-name": {
-      "name": "node-name",
-      "host": "hostname",
-      "type": "ssh",
-      "port": 22,
-      "user": "username"
-    }
-  }
-  ```
+-   **Hierarchical inventory**: `~/.tsukuyo/hierarchical-inventory.json`
 
-- Database inventory: `~/.tsukuyo/inventory/db-inventory.json`
-  ```json
-  {
-    "db-key": "database-hostname"
-  }
-  ```
-
-- Script storage:
-  - Script content: `~/.tsukuyo/scripts/<script-name>` (executable files)
-  - Script metadata: `~/.tsukuyo/scripts/<script-name>.meta.json`
     ```json
     {
-      "name": "script-name",
-      "description": "What this script does",
-      "tags": ["tag1", "tag2", "category"]
+        "db": {
+            "izuna-db": {
+                "host": "kureya.howlingmoon.dev",
+                "port": "2333",
+                "user": "abcd",
+                "pass": "pass"
+            }
+        },
+        "servers": {
+            "web": [
+                {
+                    "name": "web-1",
+                    "host": "192.168.1.10",
+                    "env": "production"
+                },
+                {
+                    "name": "web-2",
+                    "host": "192.168.1.11",
+                    "env": "production"
+                }
+            ]
+        }
     }
     ```
 
+-   **Legacy node inventory**: `~/.tsukuyo/node-inventory.json`
+
+    ```json
+    {
+        "node-name": {
+            "name": "node-name",
+            "host": "hostname",
+            "type": "ssh",
+            "port": 22,
+            "user": "username"
+        }
+    }
+    ```
+
+-   **Legacy database inventory**: `~/.tsukuyo/db-inventory.json`
+
+    ```json
+    {
+        "db-key": "database-hostname"
+    }
+    ```
+
+-   **Script storage**:
+    -   Script content: `~/.tsukuyo/scripts/<script-name>` (executable files)
+    -   Script metadata: `~/.tsukuyo/scripts/<script-name>.meta.json`
+        ```json
+        {
+            "name": "script-name",
+            "description": "What this script does",
+            "tags": ["tag1", "tag2", "category"]
+        }
+        ```
+
 ## 🧰 Tech Stack
 
-- **[Go](https://golang.org/)**: Core language
-- **[Cobra](https://github.com/spf13/cobra)**: CLI framework
-- **[promptui](https://github.com/manifoldco/promptui)**: Interactive prompt library
-- **Standard Library**:
-  - `encoding/json`: For JSON handling
-  - `os/exec`: For executing shell commands
-  - `net`: For network operations
-  - `bufio`: For reading script content
-  - `os`: For filesystem operations
+-   **[Go](https://golang.org/)**: Core language
+-   **[Cobra](https://github.com/spf13/cobra)**: CLI framework
+-   **[promptui](https://github.com/manifoldco/promptui)**: Interactive prompt library
+-   **Standard Library**:
+    -   `encoding/json`: For JSON handling
+    -   `os/exec`: For executing shell commands
+    -   `net`: For network operations
+    -   `bufio`: For reading script content
+    -   `os`: For filesystem operations
+
+## 🧪 Testing
+
+The project includes comprehensive tests for the hierarchical inventory system.
+
+### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run only hierarchical inventory tests
+go test ./internal/inventory/
+
+# Run tests with coverage
+go test -cover ./...
+```
+
+### Test Coverage
+
+The hierarchical inventory tests cover:
+
+-   **Basic Queries**: Simple key-value access (`db.izuna-db.port`)
+-   **Nested Object Queries**: Access to nested structures (`db.izuna-db`)
+-   **Array Access**: Index-based access (`servers.[0].name`)
+-   **Wildcard Queries**: Bulk operations (`servers.[*].name`)
+-   **Data Persistence**: File-based storage and loading
+-   **Legacy Compatibility**: Migration from old inventory formats
+-   **Error Handling**: Invalid queries and malformed data
+-   **Edge Cases**: Root-level operations, complex nested structures
+
+### Example Test Data
+
+The tests use data structures matching the examples in the directives:
+
+```json
+{
+    "db": {
+        "izuna-db": [
+            {
+                "host": "kureya.howlingmoon.dev",
+                "port": "2333",
+                "user": "abcd",
+                "pass": "pass",
+                "env": "int"
+            },
+            {
+                "host": "kureya.howlingmoon.dev",
+                "port": "2333",
+                "user": "abcd",
+                "pass": "pass",
+                "env": "prd"
+            }
+        ]
+    }
+}
+```
 
 ## 🤝 Contributing
 
@@ -319,12 +529,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📝 Roadmap
 
-- Implement hierarchical inventory structure
-- Add support for multiple SSH keys
-- Add configuration options
-- Expand TSH integration capabilities
-- Add support for other script languages (Node.js, Python)
-- Add tests
+-   ✅ Implement hierarchical inventory structure with jq-like queries
+-   ✅ Add comprehensive test coverage for hierarchical inventory
+-   Add support for multiple SSH keys
+-   Add configuration options
+-   Expand TSH integration capabilities
+-   Add support for other script languages (Node.js, Python)
+-   Add import/export functionality for inventory data
 
 ## 📄 License
 
