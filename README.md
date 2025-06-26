@@ -537,6 +537,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 -   Add support for other script languages (Node.js, Python)
 -   Add import/export functionality for inventory data
 
+## Tsukuyo?
+
+![](https://cdn.howlingmoon.dev/101568022_p0.png)
+_[Tsukuyo](https://www.pixiv.net/en/artworks/101568022)_
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
