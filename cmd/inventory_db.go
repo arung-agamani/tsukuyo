@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
@@ -82,14 +83,21 @@ var inventoryDbGetCmd = &cobra.Command{
 	},
 }
 
+var (
+	cachedDbInventory map[string]string
+	dbInventoryOnce   sync.Once
+)
+
 func loadDbInventory() map[string]string {
-	invFile := getDataDir() + "/db-inventory.json"
-	items := map[string]string{}
-	b, err := os.ReadFile(invFile)
-	if err == nil {
-		_ = json.Unmarshal(b, &items)
-	}
-	return items
+	dbInventoryOnce.Do(func() {
+		invFile := getDataDir() + "/db-inventory.json"
+		cachedDbInventory = map[string]string{}
+		b, err := os.ReadFile(invFile)
+		if err == nil {
+			_ = json.Unmarshal(b, &cachedDbInventory)
+		}
+	})
+	return cachedDbInventory
 }
 
 func saveDbInventory(items map[string]string) {
@@ -102,5 +110,6 @@ func init() {
 	inventoryDbCmd.AddCommand(inventoryDbListCmd)
 	inventoryDbCmd.AddCommand(inventoryDbSetCmd)
 	inventoryDbCmd.AddCommand(inventoryDbGetCmd)
-	inventoryCmd.AddCommand(inventoryDbCmd)
+	// Legacy command disabled in favor of dynamic hierarchical commands
+	// inventoryCmd.AddCommand(inventoryDbCmd)
 }

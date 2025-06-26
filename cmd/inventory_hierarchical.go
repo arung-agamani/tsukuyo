@@ -5,11 +5,26 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/arung-agamani/tsukuyo/internal/inventory"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
+
+var (
+	globalInventoryCache *inventory.HierarchicalInventory
+	inventoryCacheOnce   sync.Once
+)
+
+// getHierarchicalInventory returns a cached hierarchical inventory instance
+func getHierarchicalInventory() (*inventory.HierarchicalInventory, error) {
+	var err error
+	inventoryCacheOnce.Do(func() {
+		globalInventoryCache, err = inventory.NewHierarchicalInventory(getDataDir())
+	})
+	return globalInventoryCache, err
+}
 
 // inventoryHierarchicalCmd represents the hierarchical inventory command
 var inventoryHierarchicalCmd = &cobra.Command{
@@ -23,7 +38,7 @@ Examples:
   tsukuyo inventory query servers.[*].hostname`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		hi, err := inventory.NewHierarchicalInventory(getDataDir())
+		hi, err := getHierarchicalInventory()
 		if err != nil {
 			fmt.Println("Failed to initialize hierarchical inventory:", err)
 			return
@@ -93,7 +108,7 @@ Examples:
   tsukuyo inventory set servers.web.enabled true`,
 	Args: cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		hi, err := inventory.NewHierarchicalInventory(getDataDir())
+		hi, err := getHierarchicalInventory()
 		if err != nil {
 			fmt.Println("Failed to initialize hierarchical inventory:", err)
 			return
@@ -158,7 +173,7 @@ Examples:
   tsukuyo inventory delete servers.web`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		hi, err := inventory.NewHierarchicalInventory(getDataDir())
+		hi, err := getHierarchicalInventory()
 		if err != nil {
 			fmt.Println("Failed to initialize hierarchical inventory:", err)
 			return
@@ -204,7 +219,7 @@ Examples:
   tsukuyo inventory list db.izuna-db  # List keys under 'db.izuna-db'`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		hi, err := inventory.NewHierarchicalInventory(getDataDir())
+		hi, err := getHierarchicalInventory()
 		if err != nil {
 			fmt.Println("Failed to initialize hierarchical inventory:", err)
 			return
@@ -243,7 +258,7 @@ var inventoryImportCmd = &cobra.Command{
 	Long: `Import existing *-inventory.json files into the new hierarchical format.
 This will migrate db-inventory.json, node-inventory.json, etc. into a unified structure.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		hi, err := inventory.NewHierarchicalInventory(getDataDir())
+		hi, err := getHierarchicalInventory()
 		if err != nil {
 			fmt.Println("Failed to initialize hierarchical inventory:", err)
 			return

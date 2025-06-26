@@ -1,6 +1,8 @@
 package inventory
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,12 +10,16 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 // HierarchicalInventory manages a jq-like hierarchical data structure
 type HierarchicalInventory struct {
 	dataDir string
 	data    map[string]interface{}
+	loaded  bool
+	mu      sync.RWMutex
 }
 
 // NewHierarchicalInventory creates a new hierarchical inventory instance
@@ -21,17 +27,39 @@ func NewHierarchicalInventory(dataDir string) (*HierarchicalInventory, error) {
 	hi := &HierarchicalInventory{
 		dataDir: dataDir,
 		data:    make(map[string]interface{}),
-	}
-
-	if err := hi.ensureDataDir(); err != nil {
-		return nil, err
-	}
-
-	if err := hi.loadData(); err != nil {
-		return nil, err
+		loaded:  false,
 	}
 
 	return hi, nil
+}
+
+// ensureDataLoaded ensures that data is loaded, using lazy loading
+func (hi *HierarchicalInventory) ensureDataLoaded() error {
+	hi.mu.RLock()
+	if hi.loaded {
+		hi.mu.RUnlock()
+		return nil
+	}
+	hi.mu.RUnlock()
+
+	hi.mu.Lock()
+	defer hi.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if hi.loaded {
+		return nil
+	}
+
+	if err := hi.ensureDataDir(); err != nil {
+		return err
+	}
+
+	if err := hi.loadData(); err != nil {
+		return err
+	}
+
+	hi.loaded = true
+	return nil
 }
 
 // ensureDataDir creates the data directory if it doesn't exist
@@ -39,16 +67,56 @@ func (hi *HierarchicalInventory) ensureDataDir() error {
 	return os.MkdirAll(hi.dataDir, 0755)
 }
 
-// loadData loads all inventory data from files
+// loadData loads all inventory data from files with binary caching for speed
 func (hi *HierarchicalInventory) loadData() error {
-	// Check if we should use a single file or multiple files
-	singleFile := filepath.Join(hi.dataDir, "hierarchical-inventory.json")
-	if _, err := os.Stat(singleFile); err == nil {
-		return hi.loadFromSingleFile(singleFile)
+	// Try to load from fast binary cache first
+	binaryFile := filepath.Join(hi.dataDir, "hierarchical-inventory.gob")
+	jsonFile := filepath.Join(hi.dataDir, "hierarchical-inventory.json")
+
+	// Check if binary cache exists and is newer than JSON file
+	if binaryStat, err := os.Stat(binaryFile); err == nil {
+		if jsonStat, err := os.Stat(jsonFile); err != nil || binaryStat.ModTime().After(jsonStat.ModTime()) {
+			// Binary cache is newer or JSON doesn't exist, use binary
+			data, err := os.ReadFile(binaryFile)
+			if err == nil {
+				buf := bytes.NewBuffer(data)
+				dec := gob.NewDecoder(buf)
+				if err := dec.Decode(&hi.data); err == nil {
+					return nil // Successfully loaded from binary cache
+				}
+			}
+		}
+	}
+
+	// Fall back to JSON loading
+	if _, err := os.Stat(jsonFile); err == nil {
+		if err := hi.loadFromSingleFile(jsonFile); err == nil {
+			// Create binary cache for next time
+			hi.createBinaryCache()
+			return nil
+		}
 	}
 
 	// Otherwise, load from multiple *-inventory.json files
-	return hi.loadFromMultipleFiles()
+	if err := hi.loadFromMultipleFiles(); err == nil {
+		// Create binary cache for next time
+		hi.createBinaryCache()
+		return nil
+	}
+
+	return nil // No files to load, start with empty data
+}
+
+// createBinaryCache creates a binary cache file for faster loading
+func (hi *HierarchicalInventory) createBinaryCache() {
+	binaryFile := filepath.Join(hi.dataDir, "hierarchical-inventory.gob")
+
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	if err := enc.Encode(hi.data); err == nil {
+		// Write binary cache, ignore errors as it's just optimization
+		_ = os.WriteFile(binaryFile, buf.Bytes(), 0644)
+	}
 }
 
 // loadFromSingleFile loads data from a single hierarchical-inventory.json file
@@ -89,7 +157,7 @@ func (hi *HierarchicalInventory) loadFromMultipleFiles() error {
 	return nil
 }
 
-// saveData saves all inventory data to storage
+// saveData saves all inventory data to storage with binary cache
 func (hi *HierarchicalInventory) saveData() error {
 	// Prefer single file approach for hierarchical data
 	singleFile := filepath.Join(hi.dataDir, "hierarchical-inventory.json")
@@ -99,11 +167,23 @@ func (hi *HierarchicalInventory) saveData() error {
 		return err
 	}
 
-	return os.WriteFile(singleFile, data, 0644)
+	if err := os.WriteFile(singleFile, data, 0644); err != nil {
+		return err
+	}
+
+	// Create binary cache for faster next load
+	hi.createBinaryCache()
+
+	return nil
 }
 
 // Query performs a jq-like query on the hierarchical data
 func (hi *HierarchicalInventory) Query(query string) (interface{}, error) {
+	// Ensure data is loaded
+	if err := hi.ensureDataLoaded(); err != nil {
+		return nil, err
+	}
+
 	if query == "" {
 		return hi.data, nil
 	}
@@ -275,6 +355,11 @@ func (hi *HierarchicalInventory) navigateWildcard(data interface{}, remaining []
 
 // Set sets a value at the specified query path
 func (hi *HierarchicalInventory) Set(query string, value interface{}) error {
+	// Ensure data is loaded
+	if err := hi.ensureDataLoaded(); err != nil {
+		return err
+	}
+
 	if query == "" {
 		return fmt.Errorf("cannot set root level")
 	}
@@ -345,6 +430,11 @@ func (hi *HierarchicalInventory) createPath(segments []QuerySegment) (interface{
 
 // Delete removes a value at the specified query path
 func (hi *HierarchicalInventory) Delete(query string) error {
+	// Ensure data is loaded
+	if err := hi.ensureDataLoaded(); err != nil {
+		return err
+	}
+
 	if query == "" {
 		return fmt.Errorf("cannot delete root level")
 	}
@@ -407,4 +497,77 @@ func (hi *HierarchicalInventory) List(query string) ([]string, error) {
 // GetData returns the raw data for debugging/inspection
 func (hi *HierarchicalInventory) GetData() map[string]interface{} {
 	return hi.data
+}
+
+// GobEncode encodes the inventory to a binary format using gob
+func (hi *HierarchicalInventory) GobEncode() ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+
+	if err := enc.Encode(hi.data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// GobDecode decodes the inventory from a binary format using gob
+func (hi *HierarchicalInventory) GobDecode(data []byte) error {
+	buf := bytes.NewBuffer(data)
+	dec := gob.NewDecoder(buf)
+
+	return dec.Decode(&hi.data)
+}
+
+// SaveToFile saves the inventory to a file in the specified format (json or gob)
+func (hi *HierarchicalInventory) SaveToFile(filePath string, format string) error {
+	var data []byte
+	var err error
+
+	switch format {
+	case "json":
+		data, err = json.MarshalIndent(hi.data, "", "  ")
+	case "gob":
+		data, err = hi.GobEncode()
+	default:
+		return fmt.Errorf("unsupported format: %s", format)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// LoadFromFile loads the inventory from a file in the specified format (json or gob)
+func (hi *HierarchicalInventory) LoadFromFile(filePath string, format string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	switch format {
+	case "json":
+		return json.Unmarshal(data, &hi.data)
+	case "gob":
+		return hi.GobDecode(data)
+	default:
+		return fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
+// Backup creates a backup of the inventory data
+func (hi *HierarchicalInventory) Backup() (string, error) {
+	backupFile := filepath.Join(hi.dataDir, fmt.Sprintf("backup-%d.json", time.Now().Unix()))
+	err := hi.SaveToFile(backupFile, "json")
+	if err != nil {
+		return "", err
+	}
+	return backupFile, nil
+}
+
+// Restore restores the inventory data from a backup file
+func (hi *HierarchicalInventory) Restore(backupFile string) error {
+	return hi.LoadFromFile(backupFile, "json")
 }
