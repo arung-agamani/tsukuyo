@@ -25,6 +25,7 @@ Tsukuyo is a command-line tool designed to automate and streamline various opera
     -   **Node Inventory**: Store SSH connection details (hostname, user, port)
     -   **Database Inventory**: Store database connection details
     -   **Hierarchical Inventory**: Query complex nested data structures with jq-like syntax
+    -   **ENV File Generation**: Export inventory data as environment variables for .env files
     -   **Interactive Selection**: User-friendly prompts for selecting from available options
 
 -   **Script Management**
@@ -54,6 +55,7 @@ Tsukuyo is a command-line tool designed to automate and streamline various opera
     -   **Node Inventory**: Store SSH connection details (hostname, user, port)
     -   **Database Inventory**: Store database connection details
     -   **Hierarchical Inventory**: Query complex nested data structures with jq-like syntax
+    -   **ENV File Generation**: Export inventory data as environment variables for .env files
     -   **Interactive Selection**: User-friendly prompts for selecting from available options
 
 -   **Script Management**
@@ -334,6 +336,42 @@ tsukuyo inventory set config.database.pool_size 20
 # Query entire configuration
 tsukuyo inventory query config
 ```
+
+#### ENV File Output
+
+Export inventory data as environment variables for use in `.env` files:
+
+```bash
+# Basic ENV output - only primitive values
+tsukuyo inventory query --output-env config
+# Output:
+# CONFIG_APP_DEBUG=true
+# CONFIG_APP_WORKERS=8
+# CONFIG_DATABASE_POOL_SIZE=20
+
+# Flatten nested structures completely
+tsukuyo inventory query --output-env --flat environments.production
+# Output:
+# ENVIRONMENTS_PRODUCTION_SERVERS_0_NAME=web-prod-1
+# ENVIRONMENTS_PRODUCTION_SERVERS_0_HOST=10.0.1.10
+# ENVIRONMENTS_PRODUCTION_SERVERS_0_ROLE=web
+# ENVIRONMENTS_PRODUCTION_SERVERS_1_NAME=db-prod-1
+# ENVIRONMENTS_PRODUCTION_SERVERS_1_HOST=10.0.1.20
+# ENVIRONMENTS_PRODUCTION_SERVERS_1_ROLE=database
+
+# Include complex values as JSON strings
+tsukuyo inventory query --output-env --coerce environments.production.servers
+# Output:
+# ENVIRONMENTS_PRODUCTION_SERVERS=[{"name":"web-prod-1","host":"10.0.1.10","role":"web"},{"name":"db-prod-1","host":"10.0.1.20","role":"database"}]
+
+# Generate .env file
+tsukuyo inventory query --output-env --flat config > .env
+```
+
+**ENV Output Modes:**
+- **Default**: Only outputs primitive values (string, number, boolean, null)
+- **`--flat`**: Recursively flattens all nested structures using underscore separators
+- **`--coerce`**: Converts arrays and objects to JSON strings (only works without `--flat`)
 
 ### Legacy Inventory Management
 

@@ -15,6 +15,9 @@ import (
 var (
 	globalInventoryCache *inventory.HierarchicalInventory
 	inventoryCacheOnce   sync.Once
+	outputEnv            bool
+	flattenEnv           bool
+	coerceEnv            bool
 )
 
 // getHierarchicalInventory returns a cached hierarchical inventory instance
@@ -26,6 +29,144 @@ func getHierarchicalInventory() (*inventory.HierarchicalInventory, error) {
 	return globalInventoryCache, err
 }
 
+// formatAsEnv converts the result to .env file format
+func formatAsEnv(data interface{}, flatten bool, coerce bool) string {
+	var result strings.Builder
+	
+	if flatten {
+		// Flatten mode: recursively flatten all nested structures
+		envVars := flattenToEnv(data, "")
+		for _, envVar := range envVars {
+			result.WriteString(envVar)
+			result.WriteString("\n")
+		}
+	} else {
+		// Non-flatten mode: only output primitive values
+		envVars := extractPrimitivesToEnv(data, "", coerce)
+		for _, envVar := range envVars {
+			result.WriteString(envVar)
+			result.WriteString("\n")
+		}
+	}
+	
+	return strings.TrimSpace(result.String())
+}
+
+// flattenToEnv recursively flattens data structure into env var format
+func flattenToEnv(data interface{}, prefix string) []string {
+	var result []string
+	
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			newPrefix := key
+			if prefix != "" {
+				newPrefix = prefix + "_" + key
+			}
+			result = append(result, flattenToEnv(value, newPrefix)...)
+		}
+	case []interface{}:
+		for i, value := range v {
+			newPrefix := fmt.Sprintf("ITEM_%d", i)
+			if prefix != "" {
+				newPrefix = prefix + "_" + fmt.Sprintf("%d", i)
+			}
+			result = append(result, flattenToEnv(value, newPrefix)...)
+		}
+	case string:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%s", strings.ToUpper(prefix), v))
+		}
+	case int, int32, int64:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	case float32, float64:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	case bool:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	case nil:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=", strings.ToUpper(prefix)))
+		}
+	default:
+		// For other types, convert to string
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	}
+	
+	return result
+}
+
+// extractPrimitivesToEnv extracts only primitive values, optionally coercing complex types
+func extractPrimitivesToEnv(data interface{}, prefix string, coerce bool) []string {
+	var result []string
+	
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			newPrefix := key
+			if prefix != "" {
+				newPrefix = prefix + "_" + key
+			}
+			result = append(result, extractPrimitivesToEnv(value, newPrefix, coerce)...)
+		}
+	case []interface{}:
+		if coerce {
+			// Convert array to string representation
+			envKey := "SERVERS" // Default key for root level arrays
+			if prefix != "" {
+				envKey = strings.ToUpper(prefix)
+			}
+			jsonBytes, err := json.Marshal(v)
+			if err == nil {
+				result = append(result, fmt.Sprintf("%s=%s", envKey, string(jsonBytes)))
+			}
+		}
+		// If not coercing, skip arrays
+	case string:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%s", strings.ToUpper(prefix), v))
+		}
+	case int, int32, int64:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	case float32, float64:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	case bool:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=%v", strings.ToUpper(prefix), v))
+		}
+	case nil:
+		if prefix != "" {
+			result = append(result, fmt.Sprintf("%s=", strings.ToUpper(prefix)))
+		}
+	default:
+		if coerce {
+			// Convert complex types to JSON string
+			envKey := "DATA" // Default key for root level complex types
+			if prefix != "" {
+				envKey = strings.ToUpper(prefix)
+			}
+			jsonBytes, err := json.Marshal(v)
+			if err == nil {
+				result = append(result, fmt.Sprintf("%s=%s", envKey, string(jsonBytes)))
+			}
+		}
+		// If not coercing, skip complex types
+	}
+	
+	return result
+}
+
 // inventoryHierarchicalCmd represents the hierarchical inventory command
 var inventoryHierarchicalCmd = &cobra.Command{
 	Use:   "query",
@@ -35,7 +176,12 @@ var inventoryHierarchicalCmd = &cobra.Command{
 Examples:
   tsukuyo inventory query db.izuna-db.port
   tsukuyo inventory query db.izuna-db.[0].env
-  tsukuyo inventory query servers.[*].hostname`,
+  tsukuyo inventory query servers.[*].hostname
+  
+ENV Format Output:
+  tsukuyo inventory query --output-env db > .env
+  tsukuyo inventory query --output-env --flat db.config
+  tsukuyo inventory query --output-env --coerce db.servers`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		hi, err := getHierarchicalInventory()
@@ -81,6 +227,16 @@ Examples:
 		}
 
 		// Format the result for display
+		if outputEnv {
+			// ENV format output
+			envOutput := formatAsEnv(result, flattenEnv, coerceEnv)
+			if envOutput != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), envOutput)
+			}
+			return
+		}
+
+		// Default format output
 		switch v := result.(type) {
 		case string:
 			fmt.Fprintln(cmd.OutOrStdout(), v)
@@ -306,4 +462,9 @@ func init() {
 	inventoryCmd.AddCommand(inventoryDeleteCmd)
 	inventoryCmd.AddCommand(inventoryListCmd)
 	inventoryCmd.AddCommand(inventoryImportCmd)
+	
+	// Add flags for ENV output
+	inventoryHierarchicalCmd.Flags().BoolVar(&outputEnv, "output-env", false, "Output in .env file format")
+	inventoryHierarchicalCmd.Flags().BoolVar(&flattenEnv, "flat", false, "Flatten nested structures (when using --output-env)")
+	inventoryHierarchicalCmd.Flags().BoolVar(&coerceEnv, "coerce", false, "Convert complex values to JSON strings (when using --output-env without --flat)")
 }
