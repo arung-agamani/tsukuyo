@@ -4,13 +4,25 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os/exec"
 	"sort"
+	"strings"
 
+	"github.com/arung-agamani/tsukuyo/internal/inventory"
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
+
+// TshNode defines the structure for a Teleport node.
+type TshNode struct {
+	Metadata struct {
+		Name   string            `json:"name"`
+		Labels map[string]string `json:"labels"`
+	} `json:"metadata"`
+	Spec struct {
+		Hostname string `json:"hostname"`
+	} `json:"spec"`
+}
 
 // tshCmd represents the tsh command (Teleport SSH)
 var tshCmd = &cobra.Command{
@@ -36,16 +48,7 @@ var tshCmd = &cobra.Command{
 		}
 
 		// Step 3: Parse JSON nodes and labels
-		type Node struct {
-			Metadata struct {
-				Name   string            `json:"name"`
-				Labels map[string]string `json:"labels"`
-			} `json:"metadata"`
-			Spec struct {
-				Hostname string `json:"hostname"`
-			} `json:"spec"`
-		}
-		var nodes []Node
+		var nodes []TshNode
 		if err := json.Unmarshal(out.Bytes(), &nodes); err != nil || len(nodes) == 0 {
 			fmt.Fprintln(cmd.OutOrStdout(), "Failed to parse tsh ls output.")
 			return
@@ -57,7 +60,7 @@ var tshCmd = &cobra.Command{
 			Environment  string
 		}
 		pairSet := map[labelPair]struct{}{}
-		pairToNodes := map[labelPair][]Node{}
+		pairToNodes := map[labelPair][]TshNode{}
 		for _, n := range nodes {
 			appns := n.Metadata.Labels["app_namespace"]
 			env := n.Metadata.Labels["environment"]
@@ -102,7 +105,7 @@ var tshCmd = &cobra.Command{
 		}
 
 		// Step 5: Select node by spec.hostname ONLY
-		hostToNode := map[string]Node{}
+		hostToNode := map[string]TshNode{}
 		hostnames := make([]string, 0, len(filtered))
 		for _, n := range filtered {
 			host := n.Spec.Hostname
@@ -126,6 +129,7 @@ var tshCmd = &cobra.Command{
 			fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
 			return
 		}
+		selectedNode := hostToNode[hostname]
 
 		if withDb == "__INTERACTIVE__" {
 			withDb = ""
@@ -138,80 +142,20 @@ var tshCmd = &cobra.Command{
 				return
 			}
 
-			var dbKey, dbHost string
-			if withDb != "" {
-				dbKey = withDb
-				// Query the hierarchical inventory for the DB entry
-				result, err := hi.Query(fmt.Sprintf("db.%s", dbKey))
-				if err != nil {
-					fmt.Fprintln(cmd.OutOrStdout(), "DB key not found in inventory.")
-					return
-				}
-				// Handle different value types - could be a string or object with host field
-				switch v := result.(type) {
-				case string:
-					dbHost = v
-				case map[string]interface{}:
-					if host, ok := v["host"].(string); ok {
-						dbHost = host
-					} else {
-						fmt.Fprintln(cmd.OutOrStdout(), "DB entry missing host field.")
-						return
-					}
-				default:
-					fmt.Fprintln(cmd.OutOrStdout(), "Invalid DB entry format.")
-					return
-				}
-			} else {
-				// Interactive selection - get all DB keys
-				dbKeys, err := hi.List("db")
-				if err != nil || len(dbKeys) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), "No DB inventory found.")
-					return
-				}
-				prompt := promptui.Select{Label: "Select DB key for tunnel", Items: dbKeys}
-				_, dbKey, err = prompt.Run()
-				if err != nil {
-					fmt.Fprintln(cmd.OutOrStdout(), "Prompt failed:", err)
-					return
-				}
-				// Query the selected DB entry
-				result, err := hi.Query(fmt.Sprintf("db.%s", dbKey))
-				if err != nil {
-					fmt.Fprintln(cmd.OutOrStdout(), "Failed to get DB entry:", err)
-					return
-				}
-				// Handle different value types
-				switch v := result.(type) {
-				case string:
-					dbHost = v
-				case map[string]interface{}:
-					if host, ok := v["host"].(string); ok {
-						dbHost = host
-					} else {
-						fmt.Fprintln(cmd.OutOrStdout(), "DB entry missing host field.")
-						return
-					}
-				default:
-					fmt.Fprintln(cmd.OutOrStdout(), "Invalid DB entry format.")
-					return
-				}
-			}
-			// Find available local port (start at 5432, skip if in use)
-			localPort := 5432
-			for ; localPort < 5500; localPort++ {
-				ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", localPort))
-				if err == nil {
-					ln.Close()
-					break
-				}
-			}
-			if localPort >= 5500 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No available local port found for tunnel.")
+			dbEntry, err := selectDbWithTaggingForTsh(hi, selectedNode)
+			if err != nil {
+				fmt.Fprintln(cmd.OutOrStdout(), err)
 				return
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Forwarding local port %d to %s:5432\n", localPort, dbHost)
-			sshCmd := exec.Command("tsh", "ssh", "-L", fmt.Sprintf("127.0.0.1:%d:%s:5432", localPort, dbHost), fmt.Sprintf("ubuntu@%s", hostname))
+
+			localPort := dbEntry.LocalPort
+			if localPort == 0 {
+				localPort = dbEntry.RemotePort // Default to same as remote
+			}
+			tunnel := fmt.Sprintf("%d:%s:%d", localPort, dbEntry.Host, dbEntry.RemotePort)
+
+			fmt.Fprintf(cmd.OutOrStdout(), "Forwarding local port %d to %s:%d\n", localPort, dbEntry.Host, dbEntry.RemotePort)
+			sshCmd := exec.Command("tsh", "ssh", "-L", tunnel, fmt.Sprintf("ubuntu@%s", hostname))
 			sshCmd.Stdin = cmd.InOrStdin()
 			sshCmd.Stdout = cmd.OutOrStdout()
 			sshCmd.Stderr = cmd.ErrOrStderr()
@@ -246,4 +190,79 @@ func init() {
 	tshCmd.Flags().StringVar(&withDb, "with-db", "", "Tunnel to DB key from inventory (interactive if empty)")
 	tshCmd.Flags().Lookup("with-db").NoOptDefVal = "__INTERACTIVE__"
 	rootCmd.AddCommand(tshCmd)
+}
+
+func selectDbWithTaggingForTsh(hi *inventory.HierarchicalInventory, node TshNode) (*DbInventoryEntry, error) {
+	dbEntries, err := hi.List("db")
+	if err != nil || len(dbEntries) == 0 {
+		return nil, fmt.Errorf("no DB inventory found")
+	}
+
+	nodeTags := getTshNodeTags(node)
+	var filteredEntries []string
+	entryMap := make(map[string]DbInventoryEntry)
+
+	for _, key := range dbEntries {
+		entryData, err := hi.Query(fmt.Sprintf("db.%s", key))
+		if err != nil {
+			continue
+		}
+		var entry DbInventoryEntry
+		// manual parsing from map[string]interface{} to struct
+		if raw, ok := entryData.(map[string]interface{}); ok {
+			if h, ok := raw["host"].(string); ok {
+				entry.Host = h
+			}
+			if t, ok := raw["type"].(string); ok {
+				entry.Type = t
+			}
+			if rp, ok := raw["remote_port"].(float64); ok {
+				entry.RemotePort = int(rp)
+			}
+			if lp, ok := raw["local_port"].(float64); ok {
+				entry.LocalPort = int(lp)
+			}
+			if tags, ok := raw["tags"].([]interface{}); ok {
+				for _, tag := range tags {
+					if t, ok := tag.(string); ok {
+						entry.Tags = append(entry.Tags, t)
+					}
+				}
+			}
+		}
+
+		if len(entry.Tags) == 0 || hasCommonTags(nodeTags, entry.Tags) {
+			filteredEntries = append(filteredEntries, key)
+			entryMap[key] = entry
+		}
+	}
+
+	if len(filteredEntries) == 0 {
+		return nil, fmt.Errorf("no DB entries with matching tags found")
+	}
+
+	prompt := promptui.Select{
+		Label: "Select DB key for tunnel",
+		Items: filteredEntries,
+		Searcher: func(input string, index int) bool {
+			return strings.Contains(strings.ToLower(filteredEntries[index]), strings.ToLower(input))
+		},
+	}
+	_, selectedKey, err := prompt.Run()
+	if err != nil {
+		return nil, fmt.Errorf("prompt failed: %v", err)
+	}
+
+	selectedEntry := entryMap[selectedKey]
+	return &selectedEntry, nil
+}
+
+func getTshNodeTags(node TshNode) []string {
+	var tags []string
+	for _, value := range node.Metadata.Labels {
+		tags = append(tags, value)
+	}
+	// also add the node name to the tags
+	tags = append(tags, node.Metadata.Name)
+	return tags
 }

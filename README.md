@@ -22,10 +22,11 @@ Tsukuyo is a command-line tool designed to automate and streamline various opera
 
 -   **Inventory Management**
 
-    -   **Node Inventory**: Store SSH connection details (hostname, user, port)
-    -   **Database Inventory**: Store database connection details
+    -   **Node Inventory**: Store SSH connection details (hostname, user, port, and tags)
+    -   **Database Inventory**: Store structured database connection details (host, type, ports, and tags)
+    -   **Tag-Based Filtering**: Automatically filter database connections based on node tags when using `--with-db`.
     -   **Hierarchical Inventory**: Query complex nested data structures with jq-like syntax
-    -   **Interactive Selection**: User-friendly prompts for selecting from available options
+    -   **Interactive Selection**: User-friendly searchable prompts for selecting from available options
 
 -   **Script Management**
 
@@ -51,10 +52,11 @@ Tsukuyo is a command-line tool designed to automate and streamline various opera
 
 -   **Inventory Management**
 
-    -   **Node Inventory**: Store SSH connection details (hostname, user, port)
-    -   **Database Inventory**: Store database connection details
+    -   **Node Inventory**: Store SSH connection details (hostname, user, port, and tags)
+    -   **Database Inventory**: Store structured database connection details (host, type, ports, and tags)
+    -   **Tag-Based Filtering**: Automatically filter database connections based on node tags when using `--with-db`.
     -   **Hierarchical Inventory**: Query complex nested data structures with jq-like syntax
-    -   **Interactive Selection**: User-friendly prompts for selecting from available options
+    -   **Interactive Selection**: User-friendly searchable prompts for selecting from available options
 
 -   **Script Management**
 
@@ -109,6 +111,9 @@ SSH with tunneling:
 tsukuyo ssh <node-name> --tunnel <local-port>:<remote-host>:<remote-port>
 # Example:
 tsukuyo ssh izuna --tunnel 8080:localhost:80
+
+# SSH with database tunneling (interactive selection)
+tsukuyo ssh <node-name> --with-db
 ```
 
 Manage SSH node inventory:
@@ -120,8 +125,9 @@ tsukuyo ssh list
 # Add new node (interactive)
 tsukuyo ssh set
 
-# Add new node (direct)
+# Add new node (direct) with tags
 tsukuyo ssh set <name> <host> [user]
+# You will be prompted to add tags
 
 # Get node details (interactive)
 tsukuyo ssh get
@@ -143,7 +149,7 @@ Connect with database tunneling:
 ```bash
 tsukuyo tsh --with-db
 # or specify a specific DB from inventory:
-tsukuyo tsh --with-db michiru_ch_scroll_db
+tsukuyo tsh --with-db my-db-key
 ```
 
 ### Script Management
@@ -304,35 +310,30 @@ tsukuyo inventory list db
 tsukuyo inventory delete db.izuna-db.port
 ```
 
-#### Advanced Examples
+#### Database Inventory
 
-**Complex server inventory:**
+The database inventory now supports a structured format, allowing for more detailed configurations.
+
+**Set a structured database entry:**
 
 ```bash
-# Set up environment-based server configuration
-tsukuyo inventory set environments.production.servers '[{"name":"web-prod-1","host":"10.0.1.10","role":"web"},{"name":"db-prod-1","host":"10.0.1.20","role":"database"}]'
-tsukuyo inventory set environments.staging.servers '[{"name":"web-stage-1","host":"10.0.2.10","role":"web"}]'
-
-# Query all production servers
-tsukuyo inventory query environments.production.servers
-
-# Get all server names in production
-tsukuyo inventory query environments.production.servers.[*].name
-
-# Get database servers across environments
-tsukuyo inventory query environments.[*].servers.[*].host
+# Add a new database entry interactively
+tsukuyo inventory db set
+# You will be prompted for:
+# - Name (e.g., redis-prod)
+# - Host (e.g., cache.example.com)
+# - Type (e.g., redis)
+# - Remote Port (e.g., 6379)
+# - Local Port (optional, defaults to remote port)
+# - Tags (comma-separated, e.g., prod,cache)
 ```
 
-**Configuration management:**
+**List database entries:**
 
 ```bash
-# Store application configurations
-tsukuyo inventory set config.app.debug true
-tsukuyo inventory set config.app.workers 8
-tsukuyo inventory set config.database.pool_size 20
-
-# Query entire configuration
-tsukuyo inventory query config
+tsukuyo inventory db list
+# Output:
+# - redis-prod: type=redis, host=cache.example.com, remote_port=6379, local_port=6379, tags=[prod, cache]
 ```
 
 ### Legacy Inventory Management
@@ -393,6 +394,13 @@ Tsukuyo is built with the following components:
                 "port": "2333",
                 "user": "abcd",
                 "pass": "pass"
+            },
+            "redis-prod": {
+                "host": "cache.example.com",
+                "type": "redis",
+                "remote_port": 6379,
+                "local_port": 6379,
+                "tags": ["prod", "cache"]
             }
         },
         "servers": {
@@ -421,12 +429,13 @@ Tsukuyo is built with the following components:
             "host": "hostname",
             "type": "ssh",
             "port": 22,
-            "user": "username"
+            "user": "username",
+            "tags": ["prod", "web"]
         }
     }
     ```
 
--   **Legacy database inventory**: `~/.tsukuyo/db-inventory.json`
+-   **Legacy database inventory**: `~/.tsukuyo/db-inventory.json` (still supported but new entries use the hierarchical store)
 
     ```json
     {
@@ -482,6 +491,7 @@ go test -cover ./...
 The hierarchical inventory tests cover:
 
 -   **Basic Queries**: Simple key-value access (`db.izuna-db.port`)
+-   **Structured Data**: Handling of complex `DbInventoryEntry` objects.
 -   **Nested Object Queries**: Access to nested structures (`db.izuna-db`)
 -   **Array Access**: Index-based access (`servers.[0].name`)
 -   **Wildcard Queries**: Bulk operations (`servers.[*].name`)
@@ -531,6 +541,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 -   ✅ Implement hierarchical inventory structure with jq-like queries
 -   ✅ Add comprehensive test coverage for hierarchical inventory
+-   ✅ Rework DB inventory to be structured with types, ports, and tags.
+-   ✅ Implement tag-based filtering for DB tunnels in `ssh` and `tsh`.
 -   Add support for multiple SSH keys
 -   Add configuration options
 -   Expand TSH integration capabilities

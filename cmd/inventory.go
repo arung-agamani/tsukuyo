@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -272,6 +273,11 @@ func handleTypeGet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, type
 
 func handleTypeSet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typeName string, args []string) error {
 	out := cmd.OutOrStdout()
+
+	if typeName == "db" {
+		return handleDbSet(cmd, hi, args)
+	}
+
 	var name, valueStr string
 	var err error
 
@@ -312,5 +318,52 @@ func handleTypeSet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, type
 	}
 
 	fmt.Fprintf(out, "Set %s = %v\n", path, value)
+	return nil
+}
+
+func handleDbSet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, args []string) error {
+	out := cmd.OutOrStdout()
+	var name string
+	var err error
+
+	if len(args) > 0 {
+		name = args[0]
+	} else {
+		prompt := promptui.Prompt{Label: "Enter DB entry name"}
+		name, err = prompt.Run()
+		if err != nil {
+			return fmt.Errorf("input failed: %v", err)
+		}
+	}
+
+	// Interactive prompts for DB entry fields
+	host, _ := (&promptui.Prompt{Label: "Host"}).Run()
+	dbType, _ := (&promptui.Prompt{Label: "Type (e.g., postgres, redis)", Default: "postgres"}).Run()
+	remotePortStr, _ := (&promptui.Prompt{Label: "Remote Port", Default: "5432"}).Run()
+	localPortStr, _ := (&promptui.Prompt{Label: "Local Port (optional)"}).Run()
+	tagsStr, _ := (&promptui.Prompt{Label: "Tags (comma-separated)"}).Run()
+
+	remotePort, _ := strconv.Atoi(remotePortStr)
+	localPort, _ := strconv.Atoi(localPortStr)
+	tags := strings.Split(tagsStr, ",")
+	for i := range tags {
+		tags[i] = strings.TrimSpace(tags[i])
+	}
+
+	entry := DbInventoryEntry{
+		Host:       host,
+		Type:       dbType,
+		RemotePort: remotePort,
+		LocalPort:  localPort,
+		Tags:       tags,
+	}
+
+	path := fmt.Sprintf("db.%s", name)
+	err = hi.Set(path, entry)
+	if err != nil {
+		return fmt.Errorf("failed to set db entry: %v", err)
+	}
+
+	fmt.Fprintf(out, "Set db.%s = %+v\n", name, entry)
 	return nil
 }

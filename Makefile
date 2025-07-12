@@ -22,8 +22,8 @@ ifeq ($(OS),Windows_NT)
 else
 	@echo "Installing on Unix..."
 	@mkdir -p $$HOME/bin
-	cp $(BIN_PATH) $$HOME/bin/$(APP_NAME)
-	@echo "Make sure $$HOME/bin is in your PATH."
+	cp $(BIN_PATH) /usr/local/bin/$(APP_NAME)
+	@echo "Installed to $$HOME/bin/$(APP_NAME) or /usr/local/bin"
 endif
 
 clean:
