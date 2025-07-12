@@ -25,7 +25,7 @@ type ScriptMeta struct {
 	Tags        []string `json:"tags"`
 }
 
-func getTsukuyoDir() string {
+var getTsukuyoDir = func() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, tsukuyoDirName)
 }
@@ -203,12 +203,17 @@ func loadEnvFile(path string) map[string]string {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") || !strings.Contains(line, "=") {
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
-			envs[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if idx := strings.Index(value, " #"); idx != -1 {
+				value = strings.TrimSpace(value[:idx])
+			}
+			envs[key] = value
 		}
 	}
 	return envs
