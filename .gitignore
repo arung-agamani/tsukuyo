@@ -33,3 +33,10 @@ go.work.sum
 
 # Tsukuyo specific files
 .data
+out
+# Generated files
+tsukuyo
+tsukuyo.zip
+
+# Copilot directives
+DIRECTIVES-*

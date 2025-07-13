@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +13,96 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
 )
+
+// Command-line flags for db set command
+var (
+	dbSetType       string
+	dbSetRemotePort int
+	dbSetLocalPort  int
+	dbSetTags       string
+)
+
+// ensureDbInventoryInitialized ensures the db inventory is properly initialized
+func ensureDbInventoryInitialized(hi *inventory.HierarchicalInventory) error {
+	// Check if db key exists
+	result, err := hi.Query("db")
+	if err != nil {
+		// DB key doesn't exist, initialize it as an empty map
+		return hi.Set("db", make(map[string]interface{}))
+	}
+
+	// Check if it's a map/object type
+	if _, ok := result.(map[string]interface{}); !ok {
+		// DB key exists but is not a map, reinitialize it
+		return hi.Set("db", make(map[string]interface{}))
+	}
+
+	// Validate existing entries follow the correct structure
+	dbMap := result.(map[string]interface{})
+	for entryName, entryValue := range dbMap {
+		if err := validateDbEntry(entryName, entryValue); err != nil {
+			fmt.Printf("Warning: DB entry '%s' has invalid structure: %v\n", entryName, err)
+			// Optionally, you could remove invalid entries or fix them here
+		}
+	}
+
+	return nil
+}
+
+// validateDbEntry validates that a DB entry follows the correct structure
+func validateDbEntry(name string, entry interface{}) error {
+	entryMap, ok := entry.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("entry is not a map/object")
+	}
+
+	// Check required fields
+	if _, exists := entryMap["host"]; !exists {
+		return fmt.Errorf("missing required field 'host'")
+	}
+	if _, exists := entryMap["type"]; !exists {
+		return fmt.Errorf("missing required field 'type'")
+	}
+	if _, exists := entryMap["remote_port"]; !exists {
+		return fmt.Errorf("missing required field 'remote_port'")
+	}
+
+	// Validate field types
+	if _, ok := entryMap["host"].(string); !ok {
+		return fmt.Errorf("field 'host' must be a string")
+	}
+	if _, ok := entryMap["type"].(string); !ok {
+		return fmt.Errorf("field 'type' must be a string")
+	}
+
+	// remote_port can be stored as float64 in JSON
+	switch rp := entryMap["remote_port"].(type) {
+	case float64:
+		// Valid
+	case int:
+		// Valid
+	default:
+		return fmt.Errorf("field 'remote_port' must be a number, got %T", rp)
+	}
+
+	// Optional fields validation
+	if localPort, exists := entryMap["local_port"]; exists {
+		switch localPort.(type) {
+		case float64, int:
+			// Valid
+		default:
+			return fmt.Errorf("field 'local_port' must be a number, got %T", localPort)
+		}
+	}
+
+	if tags, exists := entryMap["tags"]; exists {
+		if _, ok := tags.([]interface{}); !ok {
+			return fmt.Errorf("field 'tags' must be an array")
+		}
+	}
+
+	return nil
+}
 
 // inventoryCmd represents the inventory command
 var inventoryCmd = &cobra.Command{
@@ -33,7 +124,22 @@ var inventoryCmd = &cobra.Command{
 			return nil
 		}
 
-		// Get available types
+		// Known inventory types that should always be available, even if empty/deleted
+		knownTypes := []string{"db", "node", "script"}
+		isKnownType := false
+		for _, knownType := range knownTypes {
+			if typeName == knownType {
+				isKnownType = true
+				break
+			}
+		}
+
+		if isKnownType {
+			// This is a known type command, handle it even if the key doesn't exist yet
+			return handleDynamicTypeCommand(cmd, hi, args)
+		}
+
+		// Check if it's an existing dynamic type
 		keys, err := hi.List("")
 		if err == nil {
 			for _, key := range keys {
@@ -55,7 +161,7 @@ var (
 	dataDirOnce   sync.Once
 )
 
-func getDataDir() string {
+var getDataDir = func() string {
 	dataDirOnce.Do(func() {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -64,11 +170,6 @@ func getDataDir() string {
 		cachedDataDir = home + "/.tsukuyo"
 	})
 	return cachedDataDir
-}
-
-func ensureDataDir() error {
-	dir := getDataDir()
-	return os.MkdirAll(dir, 0755)
 }
 
 // Migration command: copy .data inventory files to ~/.tsukuyo
@@ -107,6 +208,12 @@ var inventoryMigrateCmd = &cobra.Command{
 }
 
 func init() {
+	// Add flags for db set command
+	inventoryCmd.PersistentFlags().StringVar(&dbSetType, "type", "", "Database type (e.g., postgres, redis, mongodb)")
+	inventoryCmd.PersistentFlags().IntVar(&dbSetRemotePort, "remote-port", 0, "Remote port number")
+	inventoryCmd.PersistentFlags().IntVar(&dbSetLocalPort, "local-port", 0, "Local port number (optional)")
+	inventoryCmd.PersistentFlags().StringVar(&dbSetTags, "tags", "", "Comma-separated tags")
+
 	inventoryCmd.AddCommand(inventoryMigrateCmd)
 
 	rootCmd.AddCommand(inventoryCmd)
@@ -173,7 +280,8 @@ func handleDynamicTypeCommand(cmd *cobra.Command, hi *inventory.HierarchicalInve
 	// Handle subcommands
 	if len(subArgs) == 0 {
 		// Show help for this type
-		fmt.Fprintf(out, "📁 %s Inventory\n", strings.Title(typeName))
+		titleCase := strings.ToUpper(string(typeName[0])) + typeName[1:]
+		fmt.Fprintf(out, "📁 %s Inventory\n", titleCase)
 		fmt.Fprintf(out, "Use 'tsukuyo inventory %s <command>' where <command> is:\n", typeName)
 		fmt.Fprintf(out, "  list                    # List all %s entries\n", typeName)
 		fmt.Fprintf(out, "  get <n>              # Get specific %s entry\n", typeName)
@@ -196,7 +304,7 @@ func handleDynamicTypeCommand(cmd *cobra.Command, hi *inventory.HierarchicalInve
 	default:
 		errorMsg := fmt.Sprintf("unknown subcommand '%s'. Available: list, get, set", subCommand)
 		fmt.Fprintln(out, errorMsg)
-		return fmt.Errorf(errorMsg)
+		return errors.New(errorMsg)
 	}
 }
 
@@ -204,6 +312,13 @@ func handleDynamicTypeCommand(cmd *cobra.Command, hi *inventory.HierarchicalInve
 
 func handleTypeList(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typeName string) error {
 	out := cmd.OutOrStdout()
+
+	// Ensure DB inventory is initialized if we're working with DB type
+	if typeName == "db" {
+		if err := ensureDbInventoryInitialized(hi); err != nil {
+			return fmt.Errorf("failed to initialize db inventory: %v", err)
+		}
+	}
 
 	keys, err := hi.List(typeName)
 	if err != nil {
@@ -225,6 +340,14 @@ func handleTypeList(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typ
 
 func handleTypeGet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, typeName string, args []string) error {
 	out := cmd.OutOrStdout()
+
+	// Ensure DB inventory is initialized if we're working with DB type
+	if typeName == "db" {
+		if err := ensureDbInventoryInitialized(hi); err != nil {
+			return fmt.Errorf("failed to initialize db inventory: %v", err)
+		}
+	}
+
 	var name string
 	var err error
 
@@ -323,31 +446,100 @@ func handleTypeSet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, type
 
 func handleDbSet(cmd *cobra.Command, hi *inventory.HierarchicalInventory, args []string) error {
 	out := cmd.OutOrStdout()
-	var name string
+
+	// Ensure DB inventory is properly initialized
+	if err := ensureDbInventoryInitialized(hi); err != nil {
+		return fmt.Errorf("failed to initialize db inventory: %v", err)
+	}
+
+	var name, host string
 	var err error
 
-	if len(args) > 0 {
-		name = args[0]
+	// Check if we have enough arguments for non-interactive mode
+	hasName := len(args) > 0
+	hasHost := len(args) > 1
+
+	// Only go interactive if we don't have both name and host
+	if !hasName || !hasHost {
+		// Interactive mode for missing arguments
+		if !hasName {
+			prompt := promptui.Prompt{Label: "Enter DB entry name"}
+			name, err = prompt.Run()
+			if err != nil {
+				return fmt.Errorf("input failed: %v", err)
+			}
+		} else {
+			name = args[0]
+		}
+
+		if !hasHost {
+			prompt := promptui.Prompt{Label: "Host"}
+			host, err = prompt.Run()
+			if err != nil {
+				return fmt.Errorf("input failed: %v", err)
+			}
+		} else {
+			host = args[1]
+		}
 	} else {
-		prompt := promptui.Prompt{Label: "Enter DB entry name"}
-		name, err = prompt.Run()
-		if err != nil {
-			return fmt.Errorf("input failed: %v", err)
+		// Non-interactive mode: use arguments
+		name = args[0]
+		host = args[1]
+	}
+
+	// Get values from flags or defaults
+	dbType := dbSetType
+	if dbType == "" {
+		dbType = "postgres" // default
+	}
+
+	remotePort := dbSetRemotePort
+	if remotePort == 0 {
+		remotePort = 5432 // default
+	}
+
+	localPort := dbSetLocalPort
+	// localPort can be 0 (optional)
+
+	var tags []string
+	if dbSetTags != "" {
+		tags = strings.Split(dbSetTags, ",")
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
 		}
 	}
 
-	// Interactive prompts for DB entry fields
-	host, _ := (&promptui.Prompt{Label: "Host"}).Run()
-	dbType, _ := (&promptui.Prompt{Label: "Type (e.g., postgres, redis)", Default: "postgres"}).Run()
-	remotePortStr, _ := (&promptui.Prompt{Label: "Remote Port", Default: "5432"}).Run()
-	localPortStr, _ := (&promptui.Prompt{Label: "Local Port (optional)"}).Run()
-	tagsStr, _ := (&promptui.Prompt{Label: "Tags (comma-separated)"}).Run()
+	// If we're missing critical values and not provided via flags, go interactive for the rest
+	if (!hasName || !hasHost) && (dbSetType == "" || dbSetRemotePort == 0) {
+		if dbSetType == "" {
+			prompt := promptui.Prompt{Label: "Type (e.g., postgres, redis)", Default: "postgres"}
+			dbType, _ = prompt.Run()
+		}
 
-	remotePort, _ := strconv.Atoi(remotePortStr)
-	localPort, _ := strconv.Atoi(localPortStr)
-	tags := strings.Split(tagsStr, ",")
-	for i := range tags {
-		tags[i] = strings.TrimSpace(tags[i])
+		if dbSetRemotePort == 0 {
+			prompt := promptui.Prompt{Label: "Remote Port", Default: "5432"}
+			remotePortStr, _ := prompt.Run()
+			remotePort, _ = strconv.Atoi(remotePortStr)
+		}
+
+		if dbSetLocalPort == 0 && localPort == 0 {
+			prompt := promptui.Prompt{Label: "Local Port (optional)"}
+			localPortStr, _ := prompt.Run()
+			if localPortStr != "" {
+				localPort, _ = strconv.Atoi(localPortStr)
+			}
+		}
+
+		if dbSetTags == "" && len(tags) == 0 {
+			prompt := promptui.Prompt{Label: "Tags (comma-separated)"}
+			tagsStr, _ := prompt.Run()
+			if tagsStr != "" {
+				tags = strings.Split(tagsStr, ",")
+				for i := range tags {
+					tags[i] = strings.TrimSpace(tags[i])
+				}
+			}
+		}
 	}
 
 	entry := DbInventoryEntry{

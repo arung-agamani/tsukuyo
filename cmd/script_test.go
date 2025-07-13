@@ -58,12 +58,12 @@ func setupTestScripts(t *testing.T, scripts []tempScript) (string, func()) {
 func TestScriptListCmd(t *testing.T) {
 	scriptsToCreate := []tempScript{
 		{
-			Meta:    ScriptMeta{Name: "hello-world", Description: "Prints hello world", Tags: []string{"test", "example"}},
+			Meta: ScriptMeta{Name: "hello-world", Description: "Prints hello world", Tags: []string{"test", "example"}},
 			Content: `#!/bin/bash
 echo "Hello World"`,
 		},
 		{
-			Meta:    ScriptMeta{Name: "another-script", Description: "Another one", Tags: []string{"test", "demo"}},
+			Meta: ScriptMeta{Name: "another-script", Description: "Another one", Tags: []string{"test", "demo"}},
 			Content: `#!/bin/bash
 echo "Another one"`,
 		},
@@ -208,7 +208,7 @@ func TestScriptSearchCmd(t *testing.T) {
 func TestScriptRunCmd(t *testing.T) {
 	scriptsToCreate := []tempScript{
 		{
-			Meta:    ScriptMeta{Name: "run-test", Description: "A runnable script", Tags: []string{"run"}},
+			Meta: ScriptMeta{Name: "run-test", Description: "A runnable script", Tags: []string{"run"}},
 			Content: `#!/bin/bash
 echo "SCRIPT_VAR=${SCRIPT_VAR}"
 `,
